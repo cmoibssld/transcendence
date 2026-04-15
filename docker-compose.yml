@@ -1,0 +1,25 @@
+services:
+db:
+image: postgres:16
+container_name: transcendance_db
+restart: unless-stopped
+environment:
+POSTGRES_USER: diesel
+POSTGRES_PASSWORD: dieselpass
+POSTGRES_DB: transcendance
+ports:
+
+    "5432:5432"
+
+volumes:
+
+    pgdata:/var/lib/postgresql/data
+
+healthcheck:
+test: ["CMD-SHELL", "pg_isready -U diesel -d transcendance"]
+interval: 5s
+timeout: 5s
+retries: 10
+
+volumes:
+pgdata:
