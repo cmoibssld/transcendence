@@ -1,4 +1,5 @@
 use actix_web::{get, web, App, HttpServer, HttpResponse, Responder};
+use actix_files as fs;
 
 #[get("/")]
 async fn home() -> impl Responder {
@@ -31,6 +32,7 @@ async fn main() -> std::io::Result<()> {
             .service(profile)
             .service(statistics)
             .service(web::scope("/in_game").configure(in_game))
+            .service(fs::Files::new("/rules", ".").index_file("Rules.md"))
     })
     .bind(("127.0.0.1", 8080))?
     .run()
