@@ -21,7 +21,7 @@ fn in_game(cfg: &mut web::ServiceConfig) {
         web::resource("/player")
             .route(web::get().to(|| async { HttpResponse::Ok().body("Retreive in info on player with id of player in headers maybe") }))
             .route(web::post().to(|| async { HttpResponse::Ok().body("Chat send by player") })),
-    ); 
+    );
 }
 
 #[actix_web::main]
