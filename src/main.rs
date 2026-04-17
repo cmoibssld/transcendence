@@ -1,9 +1,17 @@
 use actix_web::{get, web, App, HttpServer, HttpResponse, Responder};
 use actix_files as fs;
+use actix_web_actors::ws;
 
 #[get("/")]
 async fn home() -> impl Responder {
     HttpResponse::Ok().body("This is the home page")
+}
+
+mod game;
+
+#[get("/game_mode")]
+async fn game_ws(req::HttpRequest, stream: web::Payload) -> Result<impl Responder, actix_web::Error> {
+    ws::start(game::GameActor::new(), &req, stream)
 }
 
 #[get("/profile/{id}")]
@@ -29,6 +37,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .service(home)
+            .service(game_ws)
             .service(profile)
             .service(statistics)
             .service(web::scope("/in_game").configure(in_game))
