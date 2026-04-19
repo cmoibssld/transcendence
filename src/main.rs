@@ -4,7 +4,7 @@ use actix_web_actors::ws;
 
 #[get("/")]
 async fn home() -> impl Responder {
-    HttpResponse::Ok().body("This is the home page")
+    HttpResponse::Ok().content_type("text/html").body(include_str!("../html/index.html"))
 }
 
 mod game;
