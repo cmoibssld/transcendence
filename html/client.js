@@ -1,4 +1,4 @@
-const ws = new WebSocket('http://127.0.0.1:8080/game_mode');
+const ws = new WebSocket('ws://127.0.0.1:8080/ws/');
 
 ws.onmessage = (event) => {
     const gameState = JSON.parse(event.data);
