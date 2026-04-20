@@ -2,7 +2,10 @@ use actix::{Actor, ActorContext, StreamHandler};
 use actix_web_actors::ws; 
 use serde::{Deserialize, Serialize};
 
-pub struct GameActor;
+pub struct GameActor {
+    id: u32,
+    phase: String,
+}
 impl Actor for GameActor {
     type Context = ws::WebsocketContext<Self>; 
 }
@@ -12,7 +15,7 @@ struct Action {
     action: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct GameInfo {
     state: String, // init_table, getting, playing
     tableId: u32,
@@ -25,14 +28,16 @@ struct GameInfo {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
     fn started (
         &mut self, 
-        ctx: &mut Self::Context
+        _ctx: &mut Self::Context
         ) {
+        self.id = getrandom::u32; // Testing one connection for now so id d
+        self.phase = String::from("waiting");
         println!("Player started a game");
     }
 
     fn finished(
         &mut self, 
-        ctx: &mut Self::Context
+        _ctx: &mut Self::Context
         ) {
         println!("Player ended game connection");
     }
@@ -49,6 +54,15 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
             Ok(ws::Message::Text(text)) => {
                 println!("Something happened {text}"); // Sending a https request to game engine
                                                        // container -> updating game
+                let event: Action = serde_json::from_str(&text).expect("Not a JSON action type");
+                match &event.action[..] {
+                    "hit" => { println!("Player wants another card"); }
+                    "stay" => { println!("Player is waiting for result"); }
+                    "join" => { println!("Player wants to join a game"); }
+                    "leave" => { println!("Player wants to leave game"); }
+                    &_ => { println!("Action is undefined"); }
+                }
+                
                 ctx.text(text);
             }
             Ok(ws::Message::Binary(bin)) => {
@@ -63,3 +77,4 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
 
     }
 }
+

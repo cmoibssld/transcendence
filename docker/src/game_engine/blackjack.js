@@ -208,7 +208,7 @@ class Table {
         const isPlaying = this.phase === 'playing';
 
         return {
-            type: 'state',
+            state: 'state',
             tableId: this.id,
             phase: this.phase,
             remainingCards: this.deck.cards.length,
@@ -235,7 +235,7 @@ class GameEngine {
     }
 
     handle(request) {
-        switch (request.type) {
+        switch (request.state) {
         case 'init_table': {
             const tableId = request.tableId;
             const players = request.players;
@@ -283,7 +283,7 @@ class GameEngine {
             };
         }
         default:
-            throw new Error('Unknown request type');
+            throw new Error('Unknown request state');
         }
     }
 }
@@ -363,7 +363,7 @@ function normalizeRequestEnvelope(data) {
         };
     }
 
-    if (typeof data.type === 'string' && data.type !== 'state') {
+    if (typeof data.state === 'string' && data.state !== 'state') {
         return {
             request: data,
             response: null,

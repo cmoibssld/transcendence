@@ -1339,6 +1339,7 @@ dependencies = [
  "actix-files",
  "actix-web",
  "actix-web-actors",
+ "getrandom",
  "serde",
  "serde_json",
 ]

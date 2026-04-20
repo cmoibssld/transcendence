@@ -1,5 +1,5 @@
 {
-	"type": "state",
+	"state": "state",
 	"tableId": 84,
 	"currentPlayer": 21,
 	"dealer": { "visibleCards": ["K-H"], "scoreVisible": 10 },
