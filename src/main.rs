@@ -17,7 +17,7 @@ async fn main() -> std::io::Result<()> {
             .route("/ws/", web::get().to(game_ws))
             .service(Files::new("/rules", ".").index_file("Rules.md"))
             .service(Files::new("/", ".").index_file("./html/index.html"))
-    })
+	    })
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
