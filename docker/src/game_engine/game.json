@@ -1,0 +1,11 @@
+{
+	"type": "state",
+	"tableId": 84,
+	"currentPlayer": 21,
+	"dealer": { "visibleCards": ["K-H"], "scoreVisible": 10 },
+	"players": [
+		{ "id": "p1", "cards": ["8-C","7-D"], "score": 15, "canHit": false },
+		{ "id": "p2", "cards": ["A-S","5-H"], "score": 16, "canHit": true }
+	],
+	"phase": "playing"
+}

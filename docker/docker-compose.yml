@@ -11,6 +11,12 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql
 
+  game_engine:
+    build: ./src/game_engine
+    container_name: game_engine
+    ports:
+      - "4567:4567"
+
 volumes:
   pgdata:
     driver: local 
