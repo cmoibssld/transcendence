@@ -6,18 +6,21 @@ use std::collections::HashMap;
 mod game;
 mod manager;
 
-async fn game_ws(req: HttpRequest, stream: web::Payload, data: web::Data<manager::GameManager>) -> Result<HttpResponse, Error> {
-    let new_player = ws::start(game::GameActor::new(), &req, stream);
-    data.add_player();
-    new_player
+async fn game_ws(req: HttpRequest, stream: web::Payload, data: web::Data<manager::GameData>) -> Result<HttpResponse, Error> {
+    let new_player = game::GameActor::new(data.clone());
+    
+    ws::start(new_player, &req, stream)
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let game_manager = web::Data::new(manager::GameManager {
-        game: HashMap::with_capacity(2),
-        player: HashMap::with_capacity(4),
-    });
+    let game_data = web::Data::new(manager::GameData {
+        manager: {
+            HashMap::with_capacity(4);
+            1;
+        }
+    }
+    );
 
     HttpServer::new(move || {
         App::new()

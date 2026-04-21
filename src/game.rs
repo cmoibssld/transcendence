@@ -1,25 +1,37 @@
 use actix::{Actor, ActorContext, StreamHandler};
+use actix_web::{web};
 use actix_web_actors::ws; 
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash};
+use crate::manager::GameData;
 
 #[derive(Hash)]
 pub struct GameActor {
     id: u32,
     phase: String,
+    manager: web::Data<GameData>,
 }
 
 impl GameActor {
-    pub fn new() -> GameActor {
+    pub fn new(data: web::Data<GameData>) -> GameActor {
         GameActor { 
             id: getrandom::u32().unwrap(),
-            phase: String::from("waiting")
+            phase: String::from("waiting"),
+            manager: data,
         }
     }
 }
 
 impl Actor for GameActor {
     type Context = ws::WebsocketContext<Self>; 
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        let addr = ctx.address();
+
+        let new_id = self.manager.add_player(addr);
+        if new_id.ok() { self.id = new_id.unwrap(); }
+        else { self.id = 0; }    
+    }
 }
 
 #[derive(Serialize, Deserialize)]
