@@ -9,3 +9,11 @@ pub struct GameManager {
 impl Actor for GameManager {
     type Context = Context<Self>;
 }
+
+impl GameManager {
+    pub fn add_game(&mut self) { 
+        let new_id = self.game.len();
+        self.game.insert(new_id, GameActor);
+
+    }
+}

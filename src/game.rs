@@ -1,11 +1,23 @@
 use actix::{Actor, ActorContext, StreamHandler};
 use actix_web_actors::ws; 
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash};
 
+#[derive(Hash)]
 pub struct GameActor {
     id: u32,
     phase: String,
 }
+
+impl GameActor {
+    pub fn new() -> GameActor {
+        GameActor { 
+            id: getrandom::u32().unwrap(),
+            phase: String::from("waiting")
+        }
+    }
+}
+
 impl Actor for GameActor {
     type Context = ws::WebsocketContext<Self>; 
 }
@@ -30,8 +42,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
         &mut self, 
         _ctx: &mut Self::Context
         ) {
-        self.id = getrandom::u32; // Testing one connection for now so id d
-        self.phase = String::from("waiting");
         println!("Player started a game");
     }
 
