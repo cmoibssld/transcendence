@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::manager::{GameData, GameError};
 
 pub struct GameActor {
-    id: u32,
+    id: u32, // Mettre une option en fait! Si pas sur une table, pas d'id
     phase: String,
     manager: web::Data<GameData>,
 }
