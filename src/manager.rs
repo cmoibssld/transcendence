@@ -52,4 +52,9 @@ impl GameData {
         manager.game.insert(id, player);
         Ok(id)
     }
+    
+    pub fn remove_player(&self, player_id: u32) {
+        let mut manager = self.manager.lock().unwrap();
+        manager.game.remove(&player_id);
+    }
 }

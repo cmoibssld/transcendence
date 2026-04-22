@@ -10,6 +10,11 @@ pub struct GameActor {
     manager: web::Data<GameData>,
 }
 
+impl Actor for GameActor {
+    type Context = ws::WebsocketContext<Self>; 
+}
+
+
 impl GameActor {
     pub fn new(data: web::Data<GameData>) -> GameActor {
         GameActor { 
@@ -18,12 +23,8 @@ impl GameActor {
             manager: data,
         }
     }
-}
 
-impl Actor for GameActor {
-    type Context = ws::WebsocketContext<Self>; 
-
-    fn started(&mut self, ctx: &mut Self::Context) {
+    fn join_game(&mut self, ctx: &mut <GameActor as Actor>::Context) { // should return Result?
         let addr = ctx.address();
 
         match self.manager.add_player(addr) {
@@ -32,10 +33,13 @@ impl Actor for GameActor {
             }
             Err(e) => {
                 eprintln!("Erreur lors de l'ajout d'un joueur: {:?}", e);
-                ctx.close(None);
-                ctx.stop();
-            }
+            }    
         }
+    }
+
+    fn leave_game(&mut self) {
+        let id = self.id;
+        self.manager.remove_player(id);
     }
 }
 
@@ -59,7 +63,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
         &mut self, 
         _ctx: &mut Self::Context
         ) {
-        println!("Player started a game");
+        println!("Player joined the lobby");
     }
 
     fn finished(
@@ -83,10 +87,19 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                                        // container -> updating game
                 let event: Action = serde_json::from_str(&text).expect("Not a JSON action type");
                 match &event.action[..] {
-                    "hit" => { println!("Player wants another card"); }
-                    "stay" => { println!("Player is waiting for result"); }
-                    "join" => { println!("Player wants to join a game"); }
-                    "leave" => { println!("Player wants to leave game"); }
+                    "hit" => { 
+                        println!("Player wants another card"); 
+                    }
+                    "stay" => { 
+                        println!("Player is waiting for result"); 
+                    }
+                    "join" => { println!("Player wants to join a game");
+                        self.join_game(ctx);
+                    }
+                    "leave" => { 
+                        println!("Player wants to leave game");
+                        self.leave_game();
+                    }
                     &_ => { println!("Action is undefined"); }
                 }
                 
