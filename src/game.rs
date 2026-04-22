@@ -18,7 +18,7 @@ impl Actor for GameActor {
 impl GameActor {
     pub fn new(data: web::Data<GameData>) -> GameActor {
         GameActor { 
-            id: getrandom::u32().unwrap(),
+            id: 0, 
             phase: String::from("waiting"),
             manager: data,
         }
@@ -94,6 +94,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                         "status": "joined",
                                         "player_id": id
                                 });
+                                self.id = id;
                                 ctx.text(res.to_string());
 
                             }

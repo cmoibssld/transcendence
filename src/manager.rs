@@ -55,6 +55,10 @@ impl GameData {
     
     pub fn remove_player(&self, player_id: u32) {
         let mut manager = self.manager.lock().unwrap();
+        let len = manager.game.len();
         manager.game.remove(&player_id);
+        if len == manager.game.len() {
+            println!("WTF? {player_id}"); }
+
     }
 }
