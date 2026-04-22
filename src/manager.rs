@@ -13,21 +13,37 @@ struct GameManager {
     // player: HashMap<Addr<GameActor>, u32>,
     // pour le protorype: une grande table de blackjack avec max 4 player
 }
+
 impl Actor for GameManager {
     type Context = Context<Self>;
 }
 
+impl GameManager {
+    pub fn new() -> GameManager {
+        GameManager {
+            game: HashMap::with_capacity(4),
+            next_id: 1,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum GameError {
-    TooManyGames,
+    _TooManyGames,
     TooManyPlayer,
 }
 
 impl GameData {
-    pub fn add_player(&mut self, player: Addr<GameActor>) -> Result<u32, GameError> { 
+    pub fn new() -> GameData {
+        GameData {
+            manager: Mutex::new(GameManager::new()),
+        }
+    }
+
+    pub fn add_player(&self, player: Addr<GameActor>) -> Result<u32, GameError> { 
         let mut manager = self.manager.lock().unwrap();
 
-        if manager.game.capacity() == 0 { 
+        if manager.game.len() == 4 { 
             return Err(GameError::TooManyPlayer)
         }
         let id = manager.next_id;

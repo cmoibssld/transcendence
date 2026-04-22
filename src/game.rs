@@ -1,11 +1,9 @@
-use actix::{Actor, ActorContext, StreamHandler};
+use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_web::{web};
 use actix_web_actors::ws; 
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash};
 use crate::manager::GameData;
 
-#[derive(Hash)]
 pub struct GameActor {
     id: u32,
     phase: String,
@@ -28,9 +26,16 @@ impl Actor for GameActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         let addr = ctx.address();
 
-        let new_id = self.manager.add_player(addr);
-        if new_id.ok() { self.id = new_id.unwrap(); }
-        else { self.id = 0; }    
+        match self.manager.add_player(addr) {
+            Ok(id) => {
+                self.id = id;
+            }
+            Err(e) => {
+                eprintln!("Erreur lors de l'ajout d'un joueur: {:?}", e);
+                ctx.close(None);
+                ctx.stop();
+            }
+        }
     }
 }
 
