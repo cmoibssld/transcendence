@@ -30,16 +30,19 @@ impl GameActor {
         match self.manager.add_player(addr) {
             Ok(id) => {
                 self.id = id;
+                self.phase = String::from("in_game"); //better to reallocate or modify?
             }
             Err(e) => {
                 eprintln!("Erreur lors de l'ajout d'un joueur: {:?}", e);
-            }    
+            }
         }
     }
 
     fn leave_game(&mut self) {
         let id = self.id;
         self.manager.remove_player(id);
+        self.id = 0;
+        self.phase = String::from("waiting");
     }
 }
 
