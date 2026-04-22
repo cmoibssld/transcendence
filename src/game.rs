@@ -123,6 +123,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                 ctx.binary(bin);
             }
             Ok(ws::Message::Close(reason)) => {
+                self.leave_game();
                 ctx.close(reason);
                 ctx.stop();
             }

@@ -47,7 +47,7 @@ impl GameData {
             return Err(GameError::TooManyPlayer)
         }
         let id = manager.next_id;
-        manager.next_id += 1;
+        manager.next_id += 1;  // change this it's awful
 
         manager.game.insert(id, player);
         Ok(id)
@@ -55,10 +55,6 @@ impl GameData {
     
     pub fn remove_player(&self, player_id: u32) {
         let mut manager = self.manager.lock().unwrap();
-        let len = manager.game.len();
         manager.game.remove(&player_id);
-        if len == manager.game.len() {
-            println!("WTF? {player_id}"); }
-
     }
 }
