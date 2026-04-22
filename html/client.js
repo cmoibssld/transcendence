@@ -7,25 +7,86 @@ const hitButton = document.getElementById('hitButton');
 const stayButton = document.getElementById('stayButton');
 const leaveButton = document.getElementById('leaveButton');
 
+let pendingJoin = false;
+let pendingLeave = false;
+
 function showLobbyControls() {
     joinButton.hidden = false;
+    joinButton.style.display = 'inline-block';
+    joinButton.disabled = false;
+
     hitButton.hidden = true;
+    hitButton.style.display = 'none';
+    hitButton.disabled = true;
+
     stayButton.hidden = true;
+    stayButton.style.display = 'none';
+    stayButton.disabled = true;
+
     leaveButton.hidden = true;
+    leaveButton.style.display = 'none';
+    leaveButton.disabled = true;
 }
 
 function showGameControls() {
     joinButton.hidden = true;
+    joinButton.style.display = 'none';
+    joinButton.disabled = true;
+
     hitButton.hidden = false;
+    hitButton.style.display = 'inline-block';
+    hitButton.disabled = false;
+
     stayButton.hidden = false;
+    stayButton.style.display = 'inline-block';
+    stayButton.disabled = false;
+
     leaveButton.hidden = false;
+    leaveButton.style.display = 'inline-block';
+    leaveButton.disabled = false;
 }
 
 showLobbyControls();
 
 ws.onmessage = (event) => {
-    const gameState = JSON.parse(event.data);
-    console.log(gameState);
+    const data = JSON.parse(event.data);
+    console.log(data);
+
+    if (!data.status) {
+        return;
+    }
+
+    if (data.status === 'joined') {
+        if (!pendingJoin) {
+            return;
+        }
+
+        pendingJoin = false;
+        pendingLeave = false;
+        showGameControls();
+        statusEl.textContent = `Partie rejointe. Player ID: ${data.player_id}`;
+        return;
+    }
+
+    if (data.status === 'waiting') {
+        showLobbyControls();
+
+        if (pendingLeave) {
+            pendingLeave = false;
+            pendingJoin = false;
+            statusEl.textContent = 'Retour au lobby...';
+            window.location.href = LOBBY_URL;
+            return;
+        }
+
+        if (pendingJoin) {
+            pendingJoin = false;
+            statusEl.textContent = 'Join refusé pour l’instant (table pleine / en attente).';
+            return;
+        }
+
+        statusEl.textContent = 'En attente dans le lobby.';
+    }
 };
 
 ws.onopen = () => {
@@ -49,14 +110,15 @@ function stay() {
 }
 
 function join() {
+	pendingJoin = true;
+	pendingLeave = false;
 	ws.send(JSON.stringify({ action: 'join' }));
-    showGameControls();
-    statusEl.textContent = 'Partie rejointe.';
+    statusEl.textContent = 'Demande de join envoyée...';
 }
 
 function leave() {
+	pendingLeave = true;
+	pendingJoin = false;
 	ws.send(JSON.stringify({ action: 'leave' }));
-    showLobbyControls();
-    statusEl.textContent = 'Retour au lobby...';
-    window.location.href = LOBBY_URL;
+    statusEl.textContent = 'Demande de leave envoyée...';
 }

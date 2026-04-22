@@ -65,6 +65,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
         _ctx: &mut Self::Context
         ) {
         println!("Player ended game connection");
+        self.leave_game();
     }
 
     fn handle(
@@ -77,8 +78,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                 ctx.pong(&msg);
             }
             Ok(ws::Message::Text(text)) => {
-                println!("Something happened {text}"); // Sending a https request to game engine
-                                                       // container -> updating game
                 let event: Action = serde_json::from_str(&text).expect("Not a JSON action type");
                 match &event.action[..] {
                     "hit" => { 
@@ -92,7 +91,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         match res {
                             Ok(id) => {
                                 let res = serde_json::json!({
-                                        "state": "joined",
+                                        "status": "joined",
                                         "player_id": id
                                 });
                                 ctx.text(res.to_string());
@@ -101,7 +100,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                             Err(GameError) => {
                                 println!("Too many player. Waiting");
                                 let res = serde_json::json!({
-                                    "state": "waiting"
+                                    "status": "waiting"
                                 });
                                 ctx.text(res.to_string());
                             }
@@ -112,14 +111,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         println!("Player wants to leave game");
                         self.leave_game();
                         let res = serde_json::json!({
-                            "state": "waiting"
+                            "status": "waiting"
                         });
                         ctx.text(res.to_string());
                     }
                     &_ => { println!("Action is undefined"); }
                 }
-                
-                ctx.text(text);
             }
             Ok(ws::Message::Binary(bin)) => {
                 ctx.binary(bin);
