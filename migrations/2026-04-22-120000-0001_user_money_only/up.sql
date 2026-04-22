@@ -1,0 +1,3 @@
+ALTER TABLE users
+    DROP COLUMN created_at,
+    ADD COLUMN money BIGINT NOT NULL DEFAULT 0;

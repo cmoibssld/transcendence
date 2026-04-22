@@ -1,8 +1,8 @@
 [package]
 name = "diesel_demo"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
-diesel = { version = "2.3.2", features = ["postgres"] }
+diesel = { version = "=2.1.6", features = ["postgres", "r2d2"] }
 dotenvy = "0.15"

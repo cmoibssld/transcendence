@@ -8,6 +8,6 @@ diesel::table! {
         #[max_length = 255]
         email -> Varchar,
         password_hash -> Text,
-        created_at -> Timestamptz,
+        money -> Int8,
     }
 }
