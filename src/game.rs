@@ -2,7 +2,7 @@ use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_web::{web};
 use actix_web_actors::ws; 
 use serde::{Deserialize, Serialize};
-use crate::manager::GameData;
+use crate::manager::{GameData, GameError};
 
 pub struct GameActor {
     id: u32,
@@ -24,18 +24,9 @@ impl GameActor {
         }
     }
 
-    fn join_game(&mut self, ctx: &mut <GameActor as Actor>::Context) { // should return Result?
+    fn join_game(&mut self, ctx: &mut <GameActor as Actor>::Context) -> Result<u32, GameError> { // should return Result?
         let addr = ctx.address();
-
-        match self.manager.add_player(addr) {
-            Ok(id) => {
-                self.id = id;
-                self.phase = String::from("in_game"); //better to reallocate or modify?
-            }
-            Err(e) => {
-                eprintln!("Erreur lors de l'ajout d'un joueur: {:?}", e);
-            }
-        }
+        self.manager.add_player(addr)
     }
 
     fn leave_game(&mut self) {
@@ -97,11 +88,33 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         println!("Player is waiting for result"); 
                     }
                     "join" => { println!("Player wants to join a game");
-                        self.join_game(ctx);
+                        let res = self.join_game(ctx);
+                        match res {
+                            Ok(id) => {
+                                let res = serde_json::json!({
+                                        "state": "joined",
+                                        "player_id": id
+                                });
+                                ctx.text(res.to_string());
+
+                            }
+                            Err(GameError) => {
+                                println!("Too many player. Waiting");
+                                let res = serde_json::json!({
+                                    "state": "waiting"
+                                });
+                                ctx.text(res.to_string());
+                            }
+                        }
+
                     }
                     "leave" => { 
                         println!("Player wants to leave game");
                         self.leave_game();
+                        let res = serde_json::json!({
+                            "state": "waiting"
+                        });
+                        ctx.text(res.to_string());
                     }
                     &_ => { println!("Action is undefined"); }
                 }
