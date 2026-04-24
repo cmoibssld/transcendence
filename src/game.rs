@@ -6,20 +6,26 @@ use crate::manager::{GameData, GameError};
 
 pub struct GameActor {
     id: u32, // Mettre une option en fait! Si pas sur une table, pas d'id
-    phase: String,
+    phase: Phase,
     manager: web::Data<GameData>,
+}
+
+enum Phase {
+    Inlobby,
+    Waiting,
+    Playing,
+    Loser,
 }
 
 impl Actor for GameActor {
     type Context = ws::WebsocketContext<Self>; 
 }
 
-
 impl GameActor {
     pub fn new(data: web::Data<GameData>) -> GameActor {
         GameActor { 
             id: 0, 
-            phase: String::from("waiting"),
+            phase: Phase::Inlobby,
             manager: data,
         }
     }
@@ -33,7 +39,7 @@ impl GameActor {
         let id = self.id;
         self.manager.remove_player(id);
         self.id = 0;
-        self.phase = String::from("waiting");
+        self.phase = Phase::Inlobby;
     }
 }
 
@@ -78,7 +84,21 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                 ctx.pong(&msg);
             }
             Ok(ws::Message::Text(text)) => {
-                let event: Action = serde_json::from_str(&text).expect("Not a JSON action type");
+                let event : Action;
+                match serde_json::from_str(&text){
+                    Ok(res) => { 
+                        event = res;
+                    }
+                    Err(err) => {
+                        eprintln!("{err}");
+                        let res = serde_json::json!({
+                            "status": "waiting",
+                            "error": "bad json format",
+                        });
+                        ctx.text(res.to_string());
+                        return ;
+                    }
+                }
                 match &event.action[..] {
                     "hit" => { 
                         println!("Player wants another card"); 
