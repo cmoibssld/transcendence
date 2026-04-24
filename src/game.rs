@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::manager::{GameData, GameError};
 
 pub struct GameActor {
-    id: u32, // Mettre une option en fait! Si pas sur une table, pas d'id
+    id: Option<u32>,
+    table_id: Option<u32>,
     phase: Phase,
     manager: web::Data<GameData>,
 }
@@ -24,21 +25,22 @@ impl Actor for GameActor {
 impl GameActor {
     pub fn new(data: web::Data<GameData>) -> GameActor {
         GameActor { 
-            id: 0, 
+            id: None, 
+            table_id: None,
             phase: Phase::Inlobby,
             manager: data,
         }
     }
 
-    fn join_game(&mut self, ctx: &mut <GameActor as Actor>::Context) -> Result<u32, GameError> { // should return Result?
+    fn join_game(&mut self, table_id: Option<u32>, ctx: &mut <GameActor as Actor>::Context) -> Result<u32, GameError> { // should return Result?
         let addr = ctx.address();
-        self.manager.add_player(addr)
+        return self.manager.add_player(table_id, addr);
     }
 
     fn leave_game(&mut self) {
-        let id = self.id;
-        self.manager.remove_player(id);
-        self.id = 0;
+        self.manager.remove_player(self.id, self.table_id);
+        self.id = None;
+        self.table_id = None;
         self.phase = Phase::Inlobby;
     }
 }
@@ -107,14 +109,14 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         println!("Player is waiting for result"); 
                     }
                     "join" => { println!("Player wants to join a game");
-                        let res = self.join_game(ctx);
+                        let res = self.join_game(None, ctx);
                         match res {
                             Ok(id) => {
                                 let res = serde_json::json!({
                                         "status": "joined",
                                         "player_id": id
                                 });
-                                self.id = id;
+                                self.id = id; // can't understand the error
                                 ctx.text(res.to_string());
 
                             }
