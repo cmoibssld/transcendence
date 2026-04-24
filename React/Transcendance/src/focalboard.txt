@@ -1,0 +1,20 @@
+Il nous faut le plus possible d'asset pour avoir un prototype de l'appli.
+Les animations pas nécessaire encore.
+On veut pouvoir faire une partie bateau: voir notre jeu, celui du croupier.
+
+Permettre dans un onglet séparé pour l'instant la communication
+entre plusieurs clients (tester avec deux).
+
+Ajout et départ de participant. Pour l'instant pas de salon,
+tout le monde est sur le même chat.
+Il faut regarder des exemples sur le sujet et ensuite créer
+un micro-service avec Actix Web -> les rêquests POST comme contenu du message
+et les headers ou query comme information sur qui parle.
+
+    Dans ce repo il y a un système de chat avec Actix Web:
+    https://github.com/actix/examples/tree/master/websockets/chat-actorless
+
+Il faut créer des visuels de ce que l'on veut voir sur le site.
+Combien de pages à construire, quels onglets,
+quelle organisation du site vu tel quel par l'utilisateur.
+https://marcy4000.itch.io/luigis-picture-poker
