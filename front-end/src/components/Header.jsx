@@ -1,5 +1,5 @@
 import '../styles/Header.css'
-import logo from '../assets/Alexis.jpg'
+import logo from '../assets/JB.jpg'
 import { Link } from "react-router-dom"
 import { FaCog } from "react-icons/fa"
 

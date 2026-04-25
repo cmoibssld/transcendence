@@ -1,0 +1,199 @@
+.friends-page {
+    height: calc(100vh - 100px);
+    width: 100%;
+
+    padding: 20px 30px;
+
+    background: radial-gradient(circle at top, #173724, #0a120d 75%);
+    color: #f5f1dc;
+
+    display: flex;
+    flex-direction: column;
+
+    overflow: hidden;
+    position: relative;
+    box-sizing: border-box;
+}
+
+/* ID joueur */
+.player-id {
+    position: absolute;
+    bottom: 14px;
+    right: 24px;
+
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 1px;
+}
+
+/* haut page */
+.top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 30px;
+    margin-bottom: 25px;
+    padding-right: 100px;
+}
+
+/* petit titre */
+.friends-label {
+    margin: 0;
+
+    font-size: 1.3rem;
+    font-family: 'Audiowide', sans-serif;
+    letter-spacing: 2px;
+
+    color: #d4af37;
+}
+
+/* recherche */
+.search-bar {
+    flex: 1;
+    max-width: 500px;
+}
+
+.search-bar input {
+    width: 100%;
+    padding: 14px 18px;
+
+    border-radius: 14px;
+    border: 2px solid #d4af37;
+
+    background: #111;
+    color: white;
+    font-size: 1rem;
+
+    outline: none;
+}
+
+.search-bar input:focus {
+    box-shadow: 0 0 12px rgba(212,175,55,0.25);
+}
+
+/* zone amis horizontale */
+.friends-grid {
+    flex: 1;
+
+    display: flex;
+    align-items: center;
+    gap: 24px;
+
+    overflow-x: auto;
+    overflow-y: hidden;
+
+    padding-bottom: 10px;
+    scroll-behavior: smooth;
+}
+
+/* scrollbar horizontale */
+.friends-grid::-webkit-scrollbar {
+    height: 8px;
+}
+
+.friends-grid::-webkit-scrollbar-thumb {
+    background: #d4af37;
+    border-radius: 10px;
+}
+
+.friends-grid::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* cartes amis */
+.friend-card {
+    flex: 0 0 260px;
+    height: 320px;
+
+    background: rgba(0,0,0,0.28);
+    border: 2px solid rgba(212,175,55,0.18);
+    border-radius: 22px;
+
+    padding: 22px;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    transition: 0.2s ease;
+}
+
+.friend-card:hover {
+    transform: translateY(-6px);
+    border-color: rgba(212,175,55,0.45);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.35);
+}
+
+/* avatar */
+.friend-avatar {
+    width: 95px;
+    height: 95px;
+
+    border-radius: 50%;
+    object-fit: cover;
+
+    border: 3px solid #d4af37;
+    margin-bottom: 18px;
+}
+
+/* nom */
+.friend-name {
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 10px;
+}
+
+/* gains */
+.friend-gains {
+    color: #d4af37;
+    font-size: 0.95rem;
+    margin-bottom: 16px;
+}
+
+/* statut */
+.friend-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    color: #ddd;
+    font-size: 0.95rem;
+}
+
+.dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.dot.online {
+    background: #39b54a;
+    box-shadow: 0 0 8px #39b54a;
+}
+
+.dot.offline {
+    background: #666;
+}
+
+/* aucun ami */
+.no-friends {
+    min-width: 100%;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+    text-align: center;
+    color: rgba(255,255,255,0.65);
+}
+
+.no-friends p {
+    font-size: 1.4rem;
+    margin-bottom: 10px;
+    color: #d4af37;
+}

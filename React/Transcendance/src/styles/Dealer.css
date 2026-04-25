@@ -1,7 +1,0 @@
-.dealer {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: radial-gradient(circle, #1f5f2a, #0b2d13);
-  overflow: hidden;
-}
