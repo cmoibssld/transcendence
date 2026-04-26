@@ -1,0 +1,210 @@
+/* PAGE */
+
+.profile-page {
+    height: calc(100vh - 100px);
+    width: 100%;
+  
+    padding: 20px 30px;
+  
+    background: radial-gradient(circle at top, #173724, #0a120d 75%);
+    color: #f5f1dc;
+  
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  
+    position: relative;
+    box-sizing: border-box;
+  }
+  
+  /* ID joueur */
+  .player-id {
+    position: absolute;
+    bottom: 14px;
+    right: 24px;
+  
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 1px;
+  }
+  
+  /* CARD */
+  .profile-container {
+    width: 100%;
+    max-width: 700px;
+  
+    background: rgba(0,0,0,0.25);
+    border: 2px solid rgba(212,175,55,0.18);
+    border-radius: 22px;
+  
+    padding: 30px;
+  
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+  }
+  
+  /* HEADER */
+  .profile-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 25px;
+  }
+  
+  /* AVATAR */
+  .profile-avatar {
+    width: 120px;
+    height: 120px;
+  
+    border-radius: 50%;
+    object-fit: cover;
+  
+    border: 3px solid #d4af37;
+    box-shadow: 0 0 15px rgba(212,175,55,0.25);
+  }
+  
+  /* INFOS */
+  .profile-info h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-family: 'Audiowide', sans-serif;
+    color: #d4af37;
+  }
+  
+  .profile-info p {
+    margin: 4px 0;
+    color: #ddd;
+  }
+  
+  .profile-id {
+    color: rgba(255,255,255,0.6);
+    font-size: 0.85rem;
+  }
+  
+  /* BUTTON */
+  .avatar-btn {
+    margin-top: 10px;
+    padding: 10px 14px;
+  
+    border: none;
+    border-radius: 12px;
+  
+    background: #d4af37;
+    color: black;
+  
+    font-weight: bold;
+    cursor: pointer;
+  }
+  
+  /* FORM */
+  .profile-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  /* FIELD */
+  .field {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* LABEL DORÉ (IMPORTANT) */
+  .field label {
+    margin-bottom: 6px;
+  
+    color: #d4af37;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    font-family: 'Audiowide', sans-serif;
+  }
+  
+  .field input {
+    padding: 12px 14px;
+  
+    border-radius: 12px;
+    border: 2px solid #d4af37;
+  
+    background: #111;
+    color: white;
+  
+    outline: none;
+  }
+  
+  /* SAVE */
+  .save-btn {
+    padding: 14px;
+  
+    border: none;
+    border-radius: 14px;
+  
+    background: #d4af37;
+    color: black;
+  
+    font-weight: bold;
+    cursor: pointer;
+  }
+  
+  /* MODAL AVATAR */
+  .avatar-modal {
+    position: fixed;
+    inset: 0;
+  
+    background: rgba(0,0,0,0.75);
+  
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .avatar-box {
+    width: 90%;
+    max-width: 420px;
+  
+    background: #0a120d;
+    border: 2px solid #d4af37;
+    border-radius: 20px;
+  
+    padding: 25px;
+    text-align: center;
+  }
+  
+  .avatar-grid {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    gap: 12px;
+  
+    margin-top: 15px;
+  }
+  
+  .avatar-choice {
+    width: 80px;
+    height: 80px;
+  
+    border-radius: 50%;
+    object-fit: cover;
+  
+    border: 2px solid transparent;
+    cursor: pointer;
+  }
+  
+  .avatar-choice.active {
+    border: 2px solid #d4af37;
+  }
+  
+  .confirm-btn {
+    margin-top: 15px;
+    padding: 12px;
+  
+    width: 100%;
+  
+    border: none;
+    border-radius: 12px;
+  
+    background: #d4af37;
+    color: black;
+  
+    font-weight: bold;
+    cursor: pointer;
+  }
