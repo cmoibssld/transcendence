@@ -116,7 +116,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                         "status": "joined",
                                         "player_id": id
                                 });
-                                self.id = id; // can't understand the error
+                                self.id = Some(id); // can't understand the error
                                 ctx.text(res.to_string());
 
                             }

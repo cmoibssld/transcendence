@@ -2,7 +2,7 @@ use actix::{Actor, Addr, Context};
 use std::collections::HashMap;
 use crate::game::GameActor;
 use std::sync::Mutex;
-use rand::rng;
+use rand::prelude::*;
 
 pub struct GameData {
     tables: HashMap<u32, Mutex<GameManager>>,
@@ -20,13 +20,13 @@ impl Actor for GameManager {
     type Context = Context<Self>;
 }
 
-async fn random_unique_key<F>(keys: mut exists: F) -> u32 
+fn random_unique_key<F>(exists: F) -> u32 
 where 
-F: FnMut(u32) -> bool,
+    F: Fn(u32) -> bool,
 {
     let mut rng = rand::rng();
     loop {
-        let key = rng.gen::<u32>();
+        let key = rng.random::<u32>();
         if !exists(key) {
             return key;
         }
@@ -49,14 +49,24 @@ impl GameManager {
     }
 
     pub fn add_player(&mut self, player: Addr<GameActor>) -> u32 {
-        self.game.insert(id + 1, player);
-        if id == 3 { self.open = false; }
-        return id + 1;
+        let id = random_unique_key::<self>(self.exist);
+        self.game.insert(id, player);
+        if self.game.len() == 3 { self.open = false; }
+        return id;
     }
 
     pub fn remove_player(&mut self, player_id: u32) {
         self.game.remove(&player_id);
         self.open = true;
+    }
+
+    pub fn exist(&self, id: u32) -> bool {
+        for key in self.game.keys() {
+            if *key == id { // key is an operator so dereference it -> u32
+                return true;
+            }
+        }
+        return false;
     }
 
 }
