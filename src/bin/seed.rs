@@ -18,16 +18,34 @@ fn main() {
     };
 
     let seeds = [
-        ("aguillou", "aguillou@emiel.com", "wiwiaguillou", 1200_i64),
-        ("jlepany", "jlepany@example.com", "wiwijlepany", 950_i64),
-        ("zizi", "zizi@example.com", "wiwizizi", 300_i64),
+        (
+            "aguillou",
+            "aguillou@emiel.com",
+            "wiwiaguillou",
+            1200_i64,
+            "avatar_knight",
+        ),
+        (
+            "jlepany",
+            "jlepany@example.com",
+            "wiwijlepany",
+            950_i64,
+            "avatar_wizard",
+        ),
+        (
+            "zizi",
+            "zizi@example.com",
+            "wiwizizi",
+            300_i64,
+            "avatar_rogue",
+        ),
     ];
 
-    for (username, email, password_hash, money) in seeds {
-        match create_user(&mut conn, username, email, password_hash, money) {
+    for (username, email, password_hash, money, avatar) in seeds {
+        match create_user(&mut conn, username, email, password_hash, money, avatar) {
             Ok(user) => println!(
-                "Upserted user #{}, {} <{}>, money={} ",
-                user.id, user.username, user.email, user.money
+                "Upserted user #{}, {} <{}>, money={}, avatar={} ",
+                user.id, user.username, user.email, user.money, user.avatar
             ),
             Err(err) => {
                 eprintln!("Failed to insert {username}: {err}");

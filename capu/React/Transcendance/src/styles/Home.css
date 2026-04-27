@@ -1,0 +1,106 @@
+.game-area {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    height: calc(100vh - 100px);
+}
+
+.play-link {
+    position: absolute;
+    top: 73%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+}
+
+.play-button {
+    width: 260px;
+    height: auto;
+
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.play-button:hover {
+    transform: scale(1.05);
+    filter: brightness(1.08);
+}
+
+.play-button:active {
+    transform: scale(0.96);
+}
+
+.game-title {
+    position: absolute;
+    top: 38%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+
+    width: 420px;
+    height: auto;
+
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+
+    z-index: 10;
+
+    filter: drop-shadow(0 4px 0 rgba(0,0,0,0.45))
+            drop-shadow(0 0 12px rgba(255,255,0,0.25));
+
+    pointer-events: none;
+    user-select: none;
+}
+
+.player-boot-card {
+    position: absolute;
+    top: 56%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 12;
+    background: rgba(8, 20, 10, 0.85);
+    border: 2px solid #39b54a;
+    border-radius: 12px;
+    color: #ffffff;
+    padding: 14px 18px;
+    min-width: 330px;
+    box-shadow: 0 0 14px rgba(0, 0, 0, 0.5);
+}
+
+.player-boot-card h3 {
+    margin: 0 0 8px 0;
+    font-size: 1rem;
+}
+
+.player-boot-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.player-boot-controls input {
+    flex: 1;
+    border: 1px solid #39b54a;
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+.player-boot-controls button {
+    border: none;
+    border-radius: 6px;
+    background: #39b54a;
+    color: #09130b;
+    font-weight: 700;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.player-boot-data p {
+    margin: 4px 0;
+}
+
+.player-error {
+    color: #ff9a9a;
+    margin: 4px 0;
+}

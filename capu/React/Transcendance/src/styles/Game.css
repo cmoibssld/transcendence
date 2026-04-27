@@ -1,0 +1,6 @@
+.game-area {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  height: calc(100vh - 100px);
+}
+  

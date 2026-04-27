@@ -9,5 +9,6 @@ diesel::table! {
         email -> Varchar,
         password_hash -> Text,
         money -> Int8,
+        avatar -> Text,
     }
 }

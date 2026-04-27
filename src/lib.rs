@@ -14,6 +14,7 @@ pub struct User {
     pub email: String,
     pub password_hash: String,
     pub money: i64,
+    pub avatar: String,
 }
 
 #[derive(Insertable)] // This struct is used for inserting new users into the database
@@ -23,6 +24,7 @@ pub struct NewUser<'a> {
     pub email: &'a str,
     pub password_hash: &'a str,
     pub money: i64,
+    pub avatar: &'a str,
 }
 
 #[derive(AsChangeset, Default)]
@@ -32,6 +34,7 @@ pub struct UpdateUser<'a> {
     pub email: Option<&'a str>,
     pub password_hash: Option<&'a str>,
     pub money: Option<i64>,
+    pub avatar: Option<&'a str>,
 }
 
 pub fn establish_connection() -> Result<PgConnection, ConnectionError> {
@@ -59,6 +62,7 @@ pub fn create_user(
     email: &str,
     password_hash: &str,
     money: i64,
+    avatar: &str,
 ) -> QueryResult<User> {
     use crate::schema::users::dsl;
     use diesel::upsert::excluded;
@@ -68,6 +72,7 @@ pub fn create_user(
         email,
         password_hash,
         money,
+        avatar,
     };
 
     diesel::insert_into(crate::schema::users::table)
@@ -78,6 +83,7 @@ pub fn create_user(
             dsl::username.eq(excluded(dsl::username)),
             dsl::password_hash.eq(excluded(dsl::password_hash)),
             dsl::money.eq(excluded(dsl::money)),
+            dsl::avatar.eq(excluded(dsl::avatar)),
         ))
         .returning(User::as_returning())
         .get_result(conn)

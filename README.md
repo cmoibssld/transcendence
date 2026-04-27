@@ -84,3 +84,4 @@ La table `users` ne contient que ces colonnes:
 - `email`
 - `password_hash`
 - `money`
+- `avatar`

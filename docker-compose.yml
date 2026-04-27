@@ -17,5 +17,23 @@ services:
             timeout: 5s
             retries: 10
 
+    api:
+        build:
+            context: .
+            dockerfile: docker/api.Dockerfile
+        container_name: transcendance_api
+        restart: unless-stopped
+        environment:
+            DATABASE_URL: postgres://diesel:dieselpass@db:5432/transcendance
+            API_HOST: 0.0.0.0
+            API_PORT: 3443
+            TLS_CERT_FILE: certs/dev-cert.pem
+            TLS_KEY_FILE: certs/dev-key.pem
+        depends_on:
+            db:
+                condition: service_healthy
+        ports:
+            - "3443:3443"
+
 volumes:
     pgdata:
