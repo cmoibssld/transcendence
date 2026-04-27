@@ -102,6 +102,9 @@ impl GameData {
         }
         else { table = self.add_to_random(); }
 
+        if table.is_err() {
+            return Err(GameError::TooManyTables)
+        }
         match self.tables.get(&table.unwrap()) {
             Some(table) => Ok(table.lock().unwrap().add_player(player)),
             None => Err(GameError::TooManyTables),
