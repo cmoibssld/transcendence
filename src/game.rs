@@ -120,7 +120,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                 ctx.text(res.to_string());
 
                             }
-                            Err(GameError) => {
+                            Err(_) => {
                                 println!("Too many player. Waiting");
                                 let res = serde_json::json!({
                                     "status": "waiting"

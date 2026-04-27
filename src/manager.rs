@@ -20,14 +20,14 @@ impl Actor for GameManager {
     type Context = Context<Self>;
 }
 
-fn random_unique_key<F>(exists: F) -> u32 
+fn random_unique_key<F>(game: &GameManager, exists: F) -> u32 
 where 
-    F: Fn(u32) -> bool,
+    F: Fn(&GameManager, u32) -> bool,
 {
     let mut rng = rand::rng();
     loop {
         let key = rng.random::<u32>();
-        if !exists(key) {
+        if !exists(game, key) {
             return key;
         }
     }
@@ -49,7 +49,7 @@ impl GameManager {
     }
 
     pub fn add_player(&mut self, player: Addr<GameActor>) -> u32 {
-        let id = random_unique_key::<self>(self.exist);
+        let id = random_unique_key(self, GameManager::exist);
         self.game.insert(id, player);
         if self.game.len() == 3 { self.open = false; }
         return id;
