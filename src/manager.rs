@@ -60,6 +60,10 @@ impl GameManager {
         self.open = true;
     }
 
+    pub fn is_full(&self) -> bool {
+        return self.open
+    }
+
     pub fn exist(&self, id: u32) -> bool {
         for key in self.game.keys() {
             if *key == id { // key is an operator so dereference it -> u32
@@ -92,30 +96,40 @@ impl GameData {
     }
 
     pub fn add_player(&self, table_id: Option<u32>, player: Addr<GameActor>) -> Result<u32, GameError> { 
-        let table;
+        // if no table id -> add player to random, else add to table_id
+        let table: Result<u32, GameError>;
         if table_id.is_some() {
             match self.tables.get(&table_id.unwrap()) {
-                Some(Game) => table = table_id,
+                Some(_) => table = table_id.ok_or(GameError::TooManyTables),
                 None => table = self.add_to_random(),
             }
         }
         else { table = self.add_to_random(); }
 
-        let joining_table = self.tables.get(&table.unwrap());
-        joining_table.add_player();
+        match self.tables.get(&table.unwrap()) {
+            Some(table) => Ok(table.lock().unwrap().add_player(player)),
+            None => Err(GameError::TooManyTables),
+        }
     }
 
     pub fn add_to_random(&self) -> Result<u32, GameError> {
         for key in self.tables.keys() {
-            if self.tables.get(key).lock().is_full() {
-                return Ok(*key);
+            match self.tables.get(key) {
+                Some(table) => {
+                    if !table.lock().unwrap().is_full() {
+                        return Ok(*key);
+                    }
+                }
+                None => continue,
             }
         }
-        self.add_table()?
+        return Err(GameError::TooManyTables)
     }
     
     pub fn remove_player(&self, table_id: Option<u32>, player_id: Option<u32>) {
-        let mut game = self.tables.get(&table_id.unwrap());
-        game.lock().remove_player(&player_id.unwrap());
+        match self.tables.get(&table_id.unwrap()) {
+            Some(game) => game.lock().unwrap().remove_player(player_id.unwrap()),
+            None => println!("Weird rable"),
+        }
     }
 }
