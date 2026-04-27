@@ -3,12 +3,13 @@ use actix_web::{web};
 use actix_web_actors::ws; 
 use serde::{Deserialize, Serialize};
 use crate::manager::{GameData, GameError};
+use std::sync::Mutex;
 
 pub struct GameActor {
     id: Option<u32>,
     table_id: Option<u32>,
     phase: Phase,
-    manager: web::Data<GameData>,
+    manager: web::Data<Mutex<GameData>>,
 }
 
 enum Phase {
@@ -23,7 +24,7 @@ impl Actor for GameActor {
 }
 
 impl GameActor {
-    pub fn new(data: web::Data<GameData>) -> GameActor {
+    pub fn new(data: web::Data<Mutex<GameData>>) -> GameActor {
         GameActor { 
             id: None, 
             table_id: None,
@@ -34,11 +35,11 @@ impl GameActor {
 
     fn join_game(&mut self, table_id: Option<u32>, ctx: &mut <GameActor as Actor>::Context) -> Result<u32, GameError> { // should return Result?
         let addr = ctx.address();
-        return self.manager.add_player(table_id, addr);
+        return self.manager.lock().unwrap().add_player(table_id, addr);
     }
 
     fn leave_game(&mut self) {
-        self.manager.remove_player(self.id, self.table_id);
+        self.manager.lock().unwrap().remove_player(self.id, self.table_id);
         self.id = None;
         self.table_id = None;
         self.phase = Phase::Inlobby;
@@ -53,8 +54,8 @@ struct Action {
 #[derive(Serialize, Deserialize, Debug)]
 struct GameInfo {
     state: String, // init_table, getting, playing
-    tableId: u32,
-    currentPlayer: u32,
+    table_id: u32,
+    current_player: u32,
     dealer: (Vec<(u8, char)>, u32),
     players: Vec<(u32, Vec<u8>, u32, bool)>,
     phase: String // playing
