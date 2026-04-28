@@ -4,7 +4,6 @@ use actix_web_actors::ws;
 use serde::{Deserialize, Serialize};
 use crate::manager::{GameData, GameError};
 use std::sync::Mutex;
-use std::fmt;
 
 pub struct GameActor {
     id: Option<u32>,
@@ -56,15 +55,7 @@ struct Action {
     action: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct GameInfo {
-    state: String, // init_table, getting, playing
-    table_id: u32,
-    current_player: u32,
-    dealer: (Vec<(u8, char)>, u32),
-    players: Vec<(u32, Vec<u8>, u32, bool)>,
-    phase: String // playing
-}
+
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
     fn started (
@@ -110,6 +101,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                 match &event.action[..] {
                     "hit" => { 
                         println!("Player wants another card"); 
+                        // hit -> if hit false: cannot hit
+                        //if hit true: update game info, send to all player 
                     }
                     "stay" => { 
                         println!("Player is waiting for result"); 
@@ -118,13 +111,13 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         let res = self.join_game(None, ctx);
                         match res {
                             Ok(id) => {
-                                let res = serde_json::json!({
-                                        "status": "joined",
-                                        "player_id": id
-                                });
                                 self.id = Some(id.0);
                                 self.table_id = Some(id.1);
                                 self.phase = Phase::Waiting;
+                                // let res = serde::json!({
+                                // "id": "good"
+                                // })
+                                let res = self.manager.lock().unwrap().ask_for_info(&self.id.unwrap());
                                 ctx.text(res.to_string());
 
                             }

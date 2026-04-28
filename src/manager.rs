@@ -1,6 +1,7 @@
 use actix::{Actor, Addr, Context};
 use std::collections::HashMap;
 use crate::game::GameActor;
+use crate::blackjack::GameInfo;
 use std::sync::Mutex;
 use rand::prelude::*;
 
@@ -12,6 +13,7 @@ pub struct GameData {
 // access this struct means locking the mutex
 struct GameManager {
     game: HashMap<u32, Addr<GameActor>>,
+    pub info: GameInfo,
     pub open: bool,
 }
 
@@ -38,9 +40,10 @@ pub enum GameError {
 }
 
 impl GameManager {
-    pub fn new() -> GameManager {
+    pub fn new(table_id: &u32) -> GameManager {
         GameManager {
             game: HashMap::with_capacity(3), // at least 3 players. No more
+            info: GameInfo::new(*table_id),
             open: true,
         }
     }
@@ -70,6 +73,13 @@ impl GameManager {
         return false;
     }
 
+    pub fn ask_for_info(&self) -> String {
+        match self.info.get_info() {
+            Ok(id) => id,
+            Err(_) => String::from("Cannot retreive data"),
+        }
+    }
+
 }
 
 impl GameData {
@@ -85,7 +95,7 @@ impl GameData {
             return Err(GameError::TooManyTables);
         }
 
-        self.tables.insert(self.table_id, Mutex::new(GameManager::new()));
+        self.tables.insert(self.table_id, Mutex::new(GameManager::new(&self.table_id)));
         // can this function fail ? Look for. If failure no panic, simply TooManyGames error
         self.table_id += 1;
         return Ok(self.table_id - 1);
@@ -140,12 +150,10 @@ impl GameData {
         false
     }
 
-    // pub fn exist(&self, id: u32) -> bool {
-    //     for key in self.tables.keys() {
-    //         if *key == id {
-    //             return true
-    //         }
-    //     }
-    //     return false
-    // }
+    pub fn ask_for_info(&self, table_id: &u32) -> String {
+        match self.tables.get(&table_id) {
+            Some(game) => game.lock().unwrap().ask_for_info(),
+            None => String::from("Table not found"),
+        }
+    }
 }

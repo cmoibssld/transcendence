@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 mod game;
 mod manager;
+mod blackjack;
 
 async fn game_ws(req: HttpRequest, stream: web::Payload, data: web::Data<Mutex<manager::GameData>>) -> Result<HttpResponse, Error> {
     println!("Creating websocket co");
