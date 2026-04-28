@@ -57,7 +57,7 @@ impl GameManager {
         self.open = true;
     }
 
-    pub fn is_full(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         return self.open
     }
 
@@ -91,22 +91,22 @@ impl GameData {
         return Ok(self.table_id - 1);
     }
 
-    pub fn add_player(&mut self, table_id: Option<u32>, player: Addr<GameActor>) -> Result<u32, GameError> { 
+    pub fn add_player(&mut self, table_id: Option<u32>, player: Addr<GameActor>) -> Result<(u32, u32), GameError> { 
         // if no table id -> add player to random, else add to table_id
-        let table: Result<u32, GameError>;
+        let add_to_table: Result<u32, GameError>;
         if table_id.is_some() {
             match self.tables.get(&table_id.unwrap()) {
-                Some(_) => table = table_id.ok_or(GameError::TooManyTables),
-                None => table = self.add_to_random(),
+                Some(_) => add_to_table = table_id.ok_or(GameError::TooManyTables),
+                None => add_to_table = self.add_to_random(),
             }
         }
-        else { table = self.add_to_random(); }
+        else { add_to_table = self.add_to_random(); }
 
-        if table.is_err() {
+        if add_to_table.is_err() {
             return Err(GameError::TooManyTables)
         }
-        match self.tables.get(&table.unwrap()) {
-            Some(table) => Ok(table.lock().unwrap().add_player(player)),
+        match self.tables.get(&add_to_table.as_ref().unwrap()) {
+            Some(table) => Ok((table.lock().unwrap().add_player(player), add_to_table.unwrap())),
             None => Err(GameError::TooManyTables),
         }
     }
@@ -115,21 +115,29 @@ impl GameData {
         for key in self.tables.keys() {
             match self.tables.get(key) {
                 Some(table) => {
-                    if !table.lock().unwrap().is_full() {
+                    if table.lock().unwrap().is_open() {
                         return Ok(*key);
                     }
                 }
-                None => continue,
+                None => break,
             }
         }
+        println!("ADDING new table");
         return self.add_table()
     }
     
-    pub fn remove_player(&self, table_id: Option<u32>, player_id: Option<u32>) {
-        match self.tables.get(&table_id.unwrap()) {
-            Some(game) => game.lock().unwrap().remove_player(player_id.unwrap()),
-            None => println!("Weird rable"),
+    pub fn remove_player(&self, table_id: Option<u32>, player_id: Option<u32>) -> bool {
+        match table_id {
+            Some(id) => match self.tables.get(&id) {
+                Some(game) => {
+                    game.lock().unwrap().remove_player(player_id.unwrap());
+                    return true
+                }
+                None => println!("No table found"),
+            }
+            None => println!("Table id is empty"),
         }
+        false
     }
 
     // pub fn exist(&self, id: u32) -> bool {

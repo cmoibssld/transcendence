@@ -4,6 +4,7 @@ use actix_web_actors::ws;
 use serde::{Deserialize, Serialize};
 use crate::manager::{GameData, GameError};
 use std::sync::Mutex;
+use std::fmt;
 
 pub struct GameActor {
     id: Option<u32>,
@@ -12,6 +13,7 @@ pub struct GameActor {
     manager: web::Data<Mutex<GameData>>,
 }
 
+#[derive(PartialEq)]
 enum Phase {
     Inlobby,
     Waiting,
@@ -33,13 +35,16 @@ impl GameActor {
         }
     }
 
-    fn join_game(&mut self, table_id: Option<u32>, ctx: &mut <GameActor as Actor>::Context) -> Result<u32, GameError> { // should return Result?
+    fn join_game(&mut self, table_id: Option<u32>, ctx: &mut <GameActor as Actor>::Context) -> Result<(u32, u32), GameError> { // should return Result?
         let addr = ctx.address();
         return self.manager.lock().unwrap().add_player(table_id, addr);
     }
 
     fn leave_game(&mut self) {
-        self.manager.lock().unwrap().remove_player(self.id, self.table_id);
+        if self.phase == Phase::Inlobby {
+            return
+        }
+        self.manager.lock().unwrap().remove_player(self.table_id, self.id);
         self.id = None;
         self.table_id = None;
         self.phase = Phase::Inlobby;
@@ -117,7 +122,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                         "status": "joined",
                                         "player_id": id
                                 });
-                                self.id = Some(id); // can't understand the error
+                                self.id = Some(id.0);
+                                self.table_id = Some(id.1);
+                                self.phase = Phase::Waiting;
                                 ctx.text(res.to_string());
 
                             }
