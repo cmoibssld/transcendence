@@ -55,8 +55,6 @@ struct Action {
     action: String,
 }
 
-
-
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
     fn started (
         &mut self, 
@@ -103,6 +101,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         println!("Player wants another card"); 
                         // hit -> if hit false: cannot hit
                         //if hit true: update game info, send to all player 
+                        // self.manager.lock().unwrap().
                     }
                     "stay" => { 
                         println!("Player is waiting for result"); 

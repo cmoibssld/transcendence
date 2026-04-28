@@ -153,7 +153,11 @@ impl GameData {
     pub fn ask_for_info(&self, table_id: &u32) -> String {
         match self.tables.get(&table_id) {
             Some(game) => game.lock().unwrap().ask_for_info(),
-            None => String::from("Table not found"),
+            None => {serde_json::json!({
+                "status": "waiting",
+                "error": "table id not found",
+                }).to_string()
+            }
         }
     }
 }
