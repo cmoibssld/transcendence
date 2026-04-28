@@ -4,6 +4,16 @@ use std::env;
 use jsonwebtoken::{encode, Header, EncodingKey};
 use chrono::{Utc, Duration};
 use rand::{distributions::Alphanumeric, Rng};
+use bcrypt::{hash, verify, DEFAULT_COST};
+
+#[derive(Deserialize)]
+struct GitHubUser {
+    id: u64,
+    login: String,
+    _name: Option<String>,
+    _email: Option<String>,
+    avatar_url: String,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ClaimsJWT {
@@ -22,6 +32,14 @@ struct RefreshRequest {
     refresh_token: String,
 }
 
+#[derive(Serialize)]
+struct AuthResponse {
+    access_token: String,
+    refresh_token: String,
+    username: String,
+    avatar_url: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct GitHubTokenResponse {
     access_token: String,
@@ -31,42 +49,103 @@ struct GitHubTokenResponse {
     scope: String,
 }
 
-async fn refresh_token(body: web::Json<RefreshRequest>) -> Result<HttpResponse> {
-    let _client_refresh_token = &body.refresh_token;
+#[derive(Deserialize)]
+struct LocalLoginRequest {
+    username: String,
+    password: String,
+}
 
-    //check in db if refresh token exist and is valid
-    //get user id and username associated to refresh token
+#[derive(Deserialize)]
+struct RegisterRequest {
+    username: String,
+    password: String,
+}
 
+fn generate_tokens_response(user_id: u64, username: String, avatar: Option<String>) -> Result<AuthResponse, actix_web::Error> {
     let expiration = Utc::now()
         .checked_add_signed(Duration::minutes(15))
         .expect("Timestamp invalide")
         .timestamp() as usize;
 
     let claims = ClaimsJWT {
-        sub: 123456, 
-        login: "MonPseudo".to_string(), 
+        sub: user_id,
+        login: username.clone(),
         exp: expiration,
     };
 
     let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
-    let new_access_token = encode(
+    let access_token = encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(jwt_secret.as_bytes())
     ).map_err(actix_web::error::ErrorInternalServerError)?;
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "access_token": new_access_token
-    })))   
+    let refresh_token: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect();
+
+    //SAVE IN DB REFRESH TOKEN ASSOCIATED TO USER ID
+
+    Ok(AuthResponse {
+        access_token,
+        refresh_token,
+        username,
+        avatar_url: avatar,
+    })
+
 }
 
-#[derive(Deserialize)]
-struct GitHubUser {
-    id: u64,
-    login: String,
-    _name: Option<String>,
-    _email: Option<String>,
-    avatar_url: String,
+
+
+async fn refresh_token(body: web::Json<RefreshRequest>) -> Result<HttpResponse> {
+    let _client_refresh_token = &body.refresh_token;
+
+    //check in db if refresh token exist and is valid
+    //get user id and username associated to refresh token
+
+    let db_user_id = 123456;
+    let db_username = "MonPseudo".to_string();
+
+    let response_data = generate_tokens_response(db_user_id, db_username, None)?;
+
+    Ok(HttpResponse::Ok().json(response_data))
+}
+
+async fn register(body: web::Json<RegisterRequest>) -> impl Responder {
+    let user_data = body.into_inner();
+
+    let hashed_password = match hash(&user_data.password, DEFAULT_COST) {
+        Ok(h) => h,
+        Err(_) => return HttpResponse::InternalServerError().json(serde_json::json!({"error": "Erreur de hachage"})),
+    };
+
+    //SAVE USER DATA USERNAME ET HSAHED PASSWORD DANS DB
+    //CHECK PSEUDO UNIQUE
+
+    HttpResponse::Created().json(serde_json::json!({
+        "message": "User created with success",
+        "username": user_data.username
+    }))
+}
+
+async fn login(body: web::Json<LocalLoginRequest>) -> Result<HttpResponse> {
+    let login_data = body.into_inner();
+
+    //Check user in db
+    let fake_db_id = 99;
+    let fake_db_hash = hash("azerty", DEFAULT_COST).unwrap(); 
+
+    //Chck Password
+    let is_valid = verify(&login_data.password, &fake_db_hash).unwrap_or(false);
+
+    if is_valid {
+        let response_data = generate_tokens_response(fake_db_id, login_data.username, None)?;
+        Ok(HttpResponse::Ok().json(response_data))
+    } else {
+        Ok(HttpResponse::Unauthorized().json(serde_json::json!({"error": "Wrong credentials"})))
+    }
 }
 
 async fn github_login() -> Result<HttpResponse> {
@@ -133,44 +212,13 @@ async fn github_callback(
         .await
         .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;   
     
-    let expiration = Utc::now()
-        .checked_add_signed(Duration::minutes(15))
-        .expect("Timestamp invalide")
-        .timestamp() as usize;
+    let response_data = generate_tokens_response(
+        github_user.id, 
+        github_user.login, 
+        Some(github_user.avatar_url)
+    )?;
 
-    let claims = ClaimsJWT {
-        sub: github_user.id,
-        login: github_user.login.clone(),
-        exp: expiration,
-    };
-
-    let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
-    let access_token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret.as_bytes())
-    ).map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
-
-    let refresh_token: String = rand::thread_rng()
-    .sample_iter(&Alphanumeric)
-    .take(64)
-    .map(char::from)
-    .collect();
-
-    #[derive(Serialize)]
-    struct AuthResponse {
-        access_token: String,
-        refresh_token: String,
-        username: String,
-        avatar_url: String,
-    }
-
-    Ok(HttpResponse::Ok().json(AuthResponse {
-        access_token,
-        refresh_token,
-        username: github_user.login,
-        avatar_url: github_user.avatar_url,
-    }))
+    Ok(HttpResponse::Ok().json(response_data))
 }
 
 
@@ -193,6 +241,11 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .route("/auth/github/login", web::get().to(github_login))
             .route("/auth/github/callback", web::get().to(github_callback))
+            
+            .route("/auth/register", web::post().to(register))
+            .route("/auth/login", web::post().to(login))
+
+
             .route("/auth/logout", web::post().to(logout))
             .route("/auth/refresh", web::post().to(refresh_token))
     })
