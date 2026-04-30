@@ -2,6 +2,10 @@ const ws = new WebSocket('ws://127.0.0.1:8080/ws/');
 const LOBBY_URL = '/';
 
 const statusEl = document.getElementById('status');
+const tableIdEl = document.getElementById('tableId');
+const currentPlayerEl = document.getElementById('currentPlayer');
+const dealerCardsEl = document.getElementById('dealerCards');
+const playerCardsEl = document.getElementById('playerCards');
 const joinButton = document.getElementById('joinButton');
 const hitButton = document.getElementById('hitButton');
 const stayButton = document.getElementById('stayButton');
@@ -9,6 +13,15 @@ const leaveButton = document.getElementById('leaveButton');
 
 let pendingJoin = false;
 let pendingLeave = false;
+let clientId = null;
+
+function setStatus(message) {
+    statusEl.textContent = message;
+}
+
+function showError(message) {
+    setStatus(`Erreur: ${message}`);
+}
 
 function showLobbyControls() {
     joinButton.hidden = false;
@@ -49,11 +62,18 @@ function showGameControls() {
 showLobbyControls();
 
 ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
+    let data;
+    try {
+        data = JSON.parse(event.data);
+    } catch (error) {
+        console.error('Invalid JSON from server', error, event.data);
+        showError('Réponse serveur invalide.');
+        return;
+    }
     console.log(data);
 
-    if (!data.status) {
-        return;
+    if (data.error) {
+        showError(data.error);
     }
 
     if (data.status === 'joined') {
@@ -63,8 +83,9 @@ ws.onmessage = (event) => {
 
         pendingJoin = false;
         pendingLeave = false;
+        clientId = data.player_id || clientId;
         showGameControls();
-        statusEl.textContent = `Partie rejointe. Player ID: ${data.player_id}`;
+        setStatus(`Partie rejointe. Player ID: ${clientId ?? 'inconnu'}`);
         return;
     }
 
@@ -74,31 +95,41 @@ ws.onmessage = (event) => {
         if (pendingLeave) {
             pendingLeave = false;
             pendingJoin = false;
-            statusEl.textContent = 'Retour au lobby...';
+            setStatus('Retour au lobby...');
             window.location.href = LOBBY_URL;
             return;
         }
 
         if (pendingJoin) {
             pendingJoin = false;
-            statusEl.textContent = 'Join refusé pour l’instant (table pleine / en attente).';
+            setStatus('Join refusé pour l’instant (table pleine / en attente).');
             return;
         }
 
-        statusEl.textContent = 'En attente dans le lobby.';
+        setStatus('En attente dans le lobby.');
+        return;
+    }
+
+    if (data.table_id !== undefined || data.current_player !== undefined) {
+        renderGameInfo(data);
+        if (pendingJoin) {
+            pendingJoin = false;
+            showGameControls();
+            setStatus('Partie rejointe.');
+        }
     }
 };
 
 ws.onopen = () => {
-    statusEl.textContent = 'Connecté au serveur. En attente du join...';
+    setStatus('Connecté au serveur. En attente du join...');
 };
 
 ws.onclose = () => {
-    statusEl.textContent = 'Connexion WebSocket fermée.';
+    setStatus('Connexion WebSocket fermée.');
 };
 
 ws.onerror = () => {
-    statusEl.textContent = 'Erreur WebSocket.';
+    showError('WebSocket.');
 };
 
 function hit() {
@@ -113,12 +144,77 @@ function join() {
 	pendingJoin = true;
 	pendingLeave = false;
 	ws.send(JSON.stringify({ action: 'join' }));
-    statusEl.textContent = 'Demande de join envoyée...';
+    setStatus('Demande de join envoyée...');
 }
 
 function leave() {
 	pendingLeave = true;
 	pendingJoin = false;
 	ws.send(JSON.stringify({ action: 'leave' }));
-    statusEl.textContent = 'Demande de leave envoyée...';
+    setStatus('Demande de leave envoyée...');
+}
+
+function renderGameInfo(info) {
+    let dealerCardsCount = 0;
+    let dealerPoints;
+    if (info.table_id !== undefined) {
+        tableIdEl.textContent = `Table: ${info.table_id}`;
+    }
+
+    if (info.current_player !== undefined) {
+        currentPlayerEl.textContent = `Tour du joueur: ${info.current_player}`;
+    }
+
+    if (Array.isArray(info.dealer_cards)) {
+        dealerCardsCount = info.dealer_cards.length;
+        dealerPoints = info.dealer_points;
+        const cards = info.dealer_cards.join(', ');
+        const points = dealerPoints !== undefined ? ` (${dealerPoints})` : '';
+        dealerCardsEl.textContent = `${cards}${points}`;
+    }
+
+    if (info.players_cards && typeof info.players_cards === 'object') {
+        const playerIds = info.players_in_game || Object.keys(info.players_cards);
+        const targetId = clientId && info.players_cards[clientId] ? clientId : playerIds[0];
+        const cards = targetId ? info.players_cards[targetId] : [];
+        const points = info.players_points && targetId ? info.players_points[targetId] : undefined;
+
+        if (Array.isArray(cards)) {
+            const pointsLabel = points !== undefined ? ` (${points})` : '';
+            const playerLabel = targetId ? `Joueur ${targetId}: ` : '';
+            playerCardsEl.textContent = `${playerLabel}${cards.join(', ')}${pointsLabel}`;
+
+            if (typeof points === 'number') {
+                updateLocalOutcome(points, dealerPoints, dealerCardsCount);
+            }
+        }
+    }
+}
+
+function updateLocalOutcome(playerPoints, dealerPoints, dealerCardsCount) {
+    if (playerPoints > 21) {
+        setStatus('Vous avez dépassé 21: perdu.');
+        return;
+    }
+
+    if (dealerCardsCount <= 1 || typeof dealerPoints !== 'number') {
+        return;
+    }
+
+    if (dealerPoints > 21) {
+        setStatus('Le croupier a dépassé 21: gagné.');
+        return;
+    }
+
+    if (playerPoints > dealerPoints) {
+        setStatus('Vous gagnez.');
+        return;
+    }
+
+    if (playerPoints < dealerPoints) {
+        setStatus('Vous perdez.');
+        return;
+    }
+
+    setStatus('Égalité.');
 }

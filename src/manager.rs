@@ -76,10 +76,11 @@ impl GameManager {
     pub fn ask_for_info(&self) -> String {
         match self.info.get_info() {
             Ok(id) => id,
-            Err(_) => String::from("Cannot retreive data"),
+            Err(_) => serde_json::json!({
+                "error": "bad requuest",
+                }).to_string(),
         }
     }
-
 }
 
 impl GameData {
