@@ -40,7 +40,16 @@ impl GameActor {
     }
 
     async fn hit(&mut self, player_id: Option<u32>, ctx: &mut <GameActor as Actor>::Context) -> String {
-        if
+        if self.phase != Phase::Playing {
+            serde_json::json!({
+                "error": "not player's turn",
+            }).to_string()
+        } else {
+            serde_json::json!({
+                "player_id": player_id,
+                "message": "can get an new card!",
+            }).to_string()
+        }
     }
 
     fn leave_game(&mut self) {
@@ -102,10 +111,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                 }
                 match &event.action[..] {
                     "hit" => { 
-                        println!("Player wants another card"); 
-                        if self.phase == Phase::Playing {
-                            self.hit(self.id, ctx);
-                        }
+                        println!("Player wants another card");
+                        ctx.text(self.hit(self.id, ctx));
                     }
                     "stay" => { 
                         println!("Player is waiting for result");
