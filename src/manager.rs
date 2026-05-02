@@ -81,6 +81,17 @@ impl GameManager {
                 }).to_string(),
         }
     }
+
+    async fn hit(&mut self, player_id: u32) -> String {
+        match self.info.hit(player_id) {
+            true => serde_json::json!({
+                "success": "new card",
+            }).to_string(),
+            false => serde_json::json!({
+                "error": "cannot hit"
+            }).to_string(),
+        }
+    }
 }
 
 impl GameData {

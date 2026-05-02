@@ -5,10 +5,10 @@ use serde_json::Result;
 use std::collections::HashMap;
 use rand::prelude::*;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Ord, Eq, PartialOrd)]
 pub struct Card {
-    color: u8, // 1=Heart 2=Spade 3=Diamond 4=Club
     value: u8, // 1 is Ace, 11 Jack, 12 Queen and 13 King
+    color: u8, // 1=Heart 2=Spade 3=Diamond 4=Club
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -20,6 +20,31 @@ pub struct GameInfo {
     players_in_game: Vec<u32>,
     players_cards: HashMap<u32, Vec<Card>>,
     players_points: HashMap<u32, u32>,
+}
+
+struct Deck {
+    deck: Vec<Card>,
+}
+
+impl Deck {
+    fn new(num_deck: usize) -> Self {
+        let mut cards = Vec::new();
+        for _ in 0..num_deck {
+            for color in 0..4 {
+                for value in 1..=13 {
+                    cards.push(Card{ value, color });
+                }
+            }
+        }
+        let mut deck = Deck { deck : cards };
+        deck.suffle();
+        deck
+    }
+
+    fn suffle(&mut self) {
+        let mut rng = rand::rng();
+        self.deck.shuffle(&mut rng);
+    }
 }
 
 impl GameInfo {
@@ -98,14 +123,50 @@ impl GameInfo {
     }
 
     fn dealer_final(&mut self) {
-        let mut total: u32;
         loop {
-            total = 0;
-            for card in self.dealer_cards.iter() {
-                total += card.value as u32; // -> modulo to kill card diff
+            if self.dealer_points >= 17 {
+                if self.winning_player() < 2 {
+                    break ;
+                }
             }
             self.dealer_cards.push(self.draw_card());
         }
+    }
+
+    fn winning_player(&self) -> u8 {
+        let mut winners: u8 = 0;
+        for value in self.players_points.values() {
+            if *value > self.dealer_points && *value <= 21 {
+                winners += 1;
+            }
+        }
+        winners
+    }
+
+    fn points_sum(&self, cards: &mut Vec<Card>) -> u32 {
+        let mut total : u32 = 0;
+        cards.sort();
+        cards.reverse();
+        for card in cards.iter() {
+            if card.value == 1 {
+                break ;
+            }
+            total += card.value as u32;
+        }
+        let mut total_ace : u32 = 0;
+        for _ in cards.iter() {
+            total_ace += 1;
+        }
+        if total_ace + total > 21 {
+            let mut high_ace : u32 = total_ace;
+            while high_ace != 0 {
+                if high_ace + total <= 21 {
+                    return high_ace + total
+                }
+                high_ace -= 1;
+            }
+        }
+        total + total_ace
     }
 }
 

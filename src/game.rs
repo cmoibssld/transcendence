@@ -39,6 +39,10 @@ impl GameActor {
         return self.manager.lock().unwrap().add_player(table_id, addr);
     }
 
+    async fn hit(&mut self, player_id: Option<u32>, ctx: &mut <GameActor as Actor>::Context) -> String {
+        if
+    }
+
     fn leave_game(&mut self) {
         if self.phase == Phase::Inlobby {
             return
@@ -99,12 +103,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                 match &event.action[..] {
                     "hit" => { 
                         println!("Player wants another card"); 
-                        // hit -> if hit false: cannot hit
-                        //if hit true: update game info, send to all player 
-                        // self.manager.lock().unwrap().
+                        if self.phase == Phase::Playing {
+                            self.hit(self.id, ctx);
+                        }
                     }
                     "stay" => { 
-                        println!("Player is waiting for result"); 
+                        println!("Player is waiting for result");
                     }
                     "join" => { println!("Player wants to join a game");
                         let res = self.join_game(None, ctx);
@@ -113,9 +117,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                 self.id = Some(id.0);
                                 self.table_id = Some(id.1);
                                 self.phase = Phase::Waiting;
-                                // let res = serde::json!({
-                                // "id": "good"
-                                // })
                                 let res = self.manager.lock().unwrap().ask_for_info(&self.id.unwrap());
                                 ctx.text(res.to_string());
 
