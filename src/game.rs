@@ -39,16 +39,18 @@ impl GameActor {
         return self.manager.lock().unwrap().add_player(table_id, addr);
     }
 
-    async fn hit(&mut self, player_id: Option<u32>, ctx: &mut <GameActor as Actor>::Context) -> String {
+    fn hit(&mut self, player_id: Option<u32>) -> String {
         if self.phase != Phase::Playing {
             serde_json::json!({
                 "error": "not player's turn",
             }).to_string()
         } else {
-            serde_json::json!({
-                "player_id": player_id,
-                "message": "can get an new card!",
-            }).to_string()
+            match self.manager.lock().unwrap().hit(player_id.unwrap(), self.table_id.unwrap()) {
+                Some(res) => return res,
+                None => return serde_json::json!({
+                    "error": "player cannot hit",
+                }).to_string()
+            }
         }
     }
 
@@ -112,7 +114,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                 match &event.action[..] {
                     "hit" => { 
                         println!("Player wants another card");
-                        ctx.text(self.hit(self.id, ctx));
+                        ctx.text(self.hit(self.id));
                     }
                     "stay" => { 
                         println!("Player is waiting for result");

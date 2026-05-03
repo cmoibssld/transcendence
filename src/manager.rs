@@ -82,7 +82,7 @@ impl GameManager {
         }
     }
 
-    async fn hit(&mut self, player_id: u32) -> String {
+    fn hit(&mut self, player_id: u32) -> String {
         match self.info.hit(player_id) {
             true => serde_json::json!({
                 "success": "new card",
@@ -170,6 +170,13 @@ impl GameData {
                 "error": "table id not found",
                 }).to_string()
             }
+        }
+    }
+    
+    pub fn hit(&self, player_id: u32, table_id: u32) -> Option<String> {
+        match self.tables.get(&table_id) {
+            Some(game) => Some(game.lock().unwrap().hit(player_id)),
+            None => None,
         }
     }
 }
