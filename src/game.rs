@@ -118,6 +118,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                     }
                     "stay" => { 
                         println!("Player is waiting for result");
+                        ctx.text(self.stand(self.id));
                     }
                     "join" => { println!("Player wants to join a game");
                         let res = self.join_game(None, ctx);
