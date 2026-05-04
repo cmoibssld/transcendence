@@ -36,3 +36,4 @@ and uninstall by:
 ```
 rustup self uninstall
 ```
+or just delete the .cargo and .rustup directories
