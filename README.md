@@ -2,7 +2,7 @@ This project has been created as part of the 42 curriculum by jlepany, aguilleu,
 
 Install cargo in 42: 
 
-'''
+```
 cat ~/.profile
 export CARGO_HOME="/home/$USER/goinfre/.cargo"
 export RUSTUP_HOME="/home/$USER/goinfre/.rustup"
@@ -18,4 +18,5 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 . "$HOME/goinfre/.cargo/env"
 
 rustup default stable
-'''
+```
+should install cargo in goinfre
