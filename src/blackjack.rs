@@ -17,7 +17,7 @@ pub struct GameInfo {
     current_player: u32,
     dealer_cards: Vec<Card>,
     dealer_points: u32,
-    players_in_game: Vec<u32>,
+    pub players_in_game: Vec<u32>,
     players_cards: HashMap<u32, Vec<Card>>,
     players_points: HashMap<u32, u32>,
 }
@@ -168,5 +168,21 @@ impl GameInfo {
         }
         total + total_ace
     }
+
+    pub fn next_player(&mut self) {
+        if self.players_in_game.len() == 0 {
+            return ;
+        }
+        if self.current_player == 0 { self.current_player = self.players_in_game[0]; }
+        if let Some(idx) = self.players_in_game.iter().position(|x| *x == self.current_player) {
+            if idx == self.players_in_game.len() - 1 {
+                self.current_player = self.players_in_game[0];
+            }
+            else {
+                self.current_player = self.players_in_game[idx + 1];
+            }
+        }
+    }
 }
+
 

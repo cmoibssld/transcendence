@@ -118,7 +118,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                     }
                     "stay" => { 
                         println!("Player is waiting for result");
-                        ctx.text(self.stand(self.id));
+                        // ctx.text(self.stand(self.id));
                     }
                     "join" => { println!("Player wants to join a game");
                         let res = self.join_game(None, ctx);
@@ -126,8 +126,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                             Ok(id) => {
                                 self.id = Some(id.0);
                                 self.table_id = Some(id.1);
+                                println!("Player {} joined table {}", self.id.unwrap(), self.table_id.unwrap());
                                 self.phase = Phase::Waiting;
-                                let res = self.manager.lock().unwrap().ask_for_info(&self.id.unwrap());
+                                let res = self.manager.lock().unwrap().ask_for_info(&self.table_id.unwrap());
                                 ctx.text(res.to_string());
 
                             }

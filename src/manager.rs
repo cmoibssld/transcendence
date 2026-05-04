@@ -51,6 +51,8 @@ impl GameManager {
     pub fn add_player(&mut self, player: Addr<GameActor>) -> u32 {
         let id = random_unique_key(self, GameManager::exist);
         self.game.insert(id, player);
+        self.info.players_in_game.push(id);
+        if self.game.len() == 1 { self.info.next_player(); }
         if self.game.len() == 3 { self.open = false; }
         return id;
     }
@@ -77,7 +79,7 @@ impl GameManager {
         match self.info.get_info() {
             Ok(id) => id,
             Err(_) => serde_json::json!({
-                "error": "bad requuest",
+                "error": "bad request",
                 }).to_string(),
         }
     }
@@ -163,12 +165,13 @@ impl GameData {
     }
 
     pub fn ask_for_info(&self, table_id: &u32) -> String {
+        println!("asking for info on table {}", table_id);
         match self.tables.get(&table_id) {
             Some(game) => game.lock().unwrap().ask_for_info(),
             None => {serde_json::json!({
                 "status": "waiting",
                 "error": "table id not found",
-                }).to_string()
+                }).to_string() // ask for info does not work
             }
         }
     }
