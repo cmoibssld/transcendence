@@ -169,9 +169,9 @@ impl GameInfo {
         total + total_ace
     }
 
-    pub fn next_player(&mut self) {
+    pub fn next_player(&mut self) -> u32 {
         if self.players_in_game.len() == 0 {
-            return ;
+            return 0
         }
         if self.current_player == 0 { self.current_player = self.players_in_game[0]; }
         if let Some(idx) = self.players_in_game.iter().position(|x| *x == self.current_player) {
@@ -182,6 +182,7 @@ impl GameInfo {
                 self.current_player = self.players_in_game[idx + 1];
             }
         }
+        self.current_player
     }
 }
 

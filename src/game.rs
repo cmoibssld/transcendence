@@ -129,6 +129,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                 println!("Player {} joined table {}", self.id.unwrap(), self.table_id.unwrap());
                                 self.phase = Phase::Waiting;
                                 let res = self.manager.lock().unwrap().ask_for_info(&self.table_id.unwrap());
+                                if res.contains(format!("current_player\":{}", self.id.unwrap()).as_str()) {
+                                    self.phase = Phase::Playing;
+                                }
                                 ctx.text(res.to_string());
 
                             }
