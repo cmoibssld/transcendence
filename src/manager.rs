@@ -58,6 +58,7 @@ impl GameManager {
 
     pub fn remove_player(&mut self, player_id: u32) {
         self.game.remove(&player_id);
+        self.info.remove_player(player_id);
         self.open = true;
     }
 

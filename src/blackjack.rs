@@ -85,8 +85,8 @@ impl GameInfo {
         let mut rng = rand::rng();
         loop {
             let new_card = Card {
-                color: rng.random::<u8>(),
-                value: rng.random::<u8>(),
+                color: rng.random_range(1..=4),
+                value: rng.random_range(1..=13),
             }; // not good -> random over 1..255 -> 1..4 and 1..13
             if let Some(_) = self.players_cards.values().find(|x| x.contains(&new_card)) {
                 continue
@@ -110,12 +110,8 @@ impl GameInfo {
 
     pub fn player_check(&mut self, player_id: u32) -> bool {
         match self.players_cards.get(&player_id) {
-            Some(cards) => {
-                let mut total : u32 = 0;
-                for card in cards.iter() {
-                    total += card.value as u32; // -> should have a modulo here
-                }
-                if total >= 21 {
+            Some(_) => {
+                if self.points_sum(&player_id) > 21 {
                     return false
                 } else {
                     return true
@@ -146,7 +142,8 @@ impl GameInfo {
         winners
     }
 
-    fn points_sum(&self, cards: &mut Vec<Card>) -> u32 {
+    fn points_sum(&mut self, player_id: &u32) -> u32 {
+        let cards = self.players_cards.get_mut(player_id).unwrap();
         let mut total : u32 = 0;
         cards.sort();
         cards.reverse();
@@ -176,13 +173,29 @@ impl GameInfo {
         self.players_in_game.push(player_id);
         self.players_cards.insert(player_id, Vec::with_capacity(5));
         self.players_points.insert(player_id, 0);
-        if (self.players_in_game.len() == 1) {
+        if self.players_in_game.len() == 1 {
             self.current_player = player_id;
         }
     }
 
+    pub fn remove_player(&mut self, player_id: u32) {
+        match self.players_in_game.iter().position(|x| *x == player_id) {
+            Some(index) => {
+                self.players_in_game.remove(index);
+            }
+            None => {  }
+        };
+        self.players_cards.remove(&player_id);
+        self.players_points.remove(&player_id);
+        if self.current_player == player_id {
+            self.next_player();
+        }
+    }
+
     pub fn next_player(&mut self) -> u32 {
-        // if self.players_in_game.len() == 0 { return 0 }
+        if self.players_in_game.len() == 0 { 
+            self.current_player = 0
+        }
         if let Some(idx) = self.players_in_game.iter().position(|x| *x == self.current_player) {
             if idx == self.players_in_game.len() - 1 {
                 self.current_player = self.players_in_game[0];
