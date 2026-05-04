@@ -51,8 +51,7 @@ impl GameManager {
     pub fn add_player(&mut self, player: Addr<GameActor>) -> u32 {
         let id = random_unique_key(self, GameManager::exist);
         self.game.insert(id, player);
-        self.info.players_in_game.push(id);
-        if self.game.len() == 1 { self.info.next_player(); }
+        self.info.add_player(id);
         if self.game.len() == 3 { self.open = false; }
         return id;
     }

@@ -115,6 +115,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                     "hit" => { 
                         println!("Player wants another card");
                         ctx.text(self.hit(self.id));
+                        // ctx.text(self.manager.lock().unwrap().ask_for_info(&self.table_id.unwrap()));
                     }
                     "stay" => { 
                         println!("Player is waiting for result");

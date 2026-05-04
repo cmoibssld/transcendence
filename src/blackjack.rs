@@ -17,7 +17,7 @@ pub struct GameInfo {
     current_player: u32,
     dealer_cards: Vec<Card>,
     dealer_points: u32,
-    pub players_in_game: Vec<u32>,
+    players_in_game: Vec<u32>,
     players_cards: HashMap<u32, Vec<Card>>,
     players_points: HashMap<u32, u32>,
 }
@@ -69,11 +69,14 @@ impl GameInfo {
             let new_card = self.draw_card();
             if let Some(player_deck) = self.players_cards.get_mut(&player_id) {
                 player_deck.push(new_card);
+            } else { 
+                println!("Player {} is not in the game", player_id);
+                return false 
             }
-            else { return false }
             true
         }
         else {
+            println!("Player {} cannot hit, it's not his turn", player_id);
             false
         }
     }
@@ -169,11 +172,17 @@ impl GameInfo {
         total + total_ace
     }
 
-    pub fn next_player(&mut self) -> u32 {
-        if self.players_in_game.len() == 0 {
-            return 0
+    pub fn add_player(&mut self, player_id: u32) {
+        self.players_in_game.push(player_id);
+        self.players_cards.insert(player_id, Vec::with_capacity(5));
+        self.players_points.insert(player_id, 0);
+        if (self.players_in_game.len() == 1) {
+            self.current_player = player_id;
         }
-        if self.current_player == 0 { self.current_player = self.players_in_game[0]; }
+    }
+
+    pub fn next_player(&mut self) -> u32 {
+        // if self.players_in_game.len() == 0 { return 0 }
         if let Some(idx) = self.players_in_game.iter().position(|x| *x == self.current_player) {
             if idx == self.players_in_game.len() - 1 {
                 self.current_player = self.players_in_game[0];
