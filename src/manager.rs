@@ -1,7 +1,7 @@
 use actix::{Actor, Addr, Context};
 use std::collections::HashMap;
 use crate::game::GameActor;
-use crate::blackjack::GameInfo;
+use crate::blackjack::{GameInfo, Deck};
 use std::sync::Mutex;
 use rand::prelude::*;
 
@@ -14,6 +14,7 @@ pub struct GameData {
 struct GameManager {
     game: HashMap<u32, Addr<GameActor>>,
     pub info: GameInfo,
+    deck: Deck,
     pub open: bool,
 }
 
@@ -44,6 +45,7 @@ impl GameManager {
         GameManager {
             game: HashMap::with_capacity(3), // at least 3 players. No more
             info: GameInfo::new(*table_id),
+            deck: Deck::new(54),
             open: true,
         }
     }
@@ -84,8 +86,8 @@ impl GameManager {
         }
     }
 
-    fn hit(&mut self, player_id: u32) -> String {
-        match self.info.hit(player_id) {
+    pub fn hit(&mut self, player_id: u32) -> String {
+        match self.info.hit(player_id, &mut self.deck) {
             true =>
                 serde_json::json!({
                 "success": "new card",
@@ -96,9 +98,14 @@ impl GameManager {
         }
     }
 
-    pub fn check_player(&self, player_id: u32) -> Option<u32> {
+    pub fn check_player(&self, player_id: &u32) -> Option<u32> {
         self.info.player_check(player_id)
     }
+    
+    pub fn stand(&mut self, player_id: &u32) -> String {
+        self.info.pause_player(player_id, &mut self.deck)
+    }
+}
 
 impl GameData {
     pub fn new() -> GameData {
@@ -151,7 +158,7 @@ impl GameData {
             }
         }
         println!("ADDING new table");
-        return self.add_table()
+        self.add_table()
     }
     
     pub fn remove_player(&self, table_id: Option<u32>, player_id: Option<u32>) -> bool {
@@ -168,7 +175,13 @@ impl GameData {
         false
     }
 
-    pub fn ask_for_info(&self, table_id: &u32) -> String {
+    pub fn ask_for_info(&self, table_id: &Option<u32>) -> String {
+        if table_id.is_none() {
+            return serde_json::json!({
+                "error": "table not found",
+            }).to_string()
+        }
+        let table_id = table_id.unwrap();
         println!("asking for info on table {}", table_id);
         match self.tables.get(&table_id) {
             Some(game) => game.lock().unwrap().ask_for_info(),
@@ -184,6 +197,27 @@ impl GameData {
         match self.tables.get(&table_id) {
             Some(game) => Some(game.lock().unwrap().hit(player_id)),
             None => None,
+        }
+    }
+
+    pub fn check_player(&self, player_id: &u32, table_id: &Option<u32>) -> Option<u32> {
+        match table_id {
+            Some(table_id) => {
+                match self.tables.get(table_id) {
+                    Some(game) => game.lock().unwrap().check_player(player_id),
+                    None => None,
+                }
+            }
+            None => None,
+        }
+    }
+
+    pub fn stand(&mut self, player_id: &u32, table_id: &u32) -> String {
+        match self.tables.get(table_id) {
+            Some(game) => game.lock().unwrap().stand(player_id),
+            None => serde_json::json!({
+                "error": "cannot find player's table",
+            }).to_string()
         }
     }
 }

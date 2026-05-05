@@ -5,7 +5,7 @@ use serde_json::Result;
 use std::collections::HashMap;
 use rand::prelude::*;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Ord, Eq, PartialOrd)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Ord, Eq, PartialOrd, Clone)]
 pub struct Card {
     value: u8, // 1 is Ace, 11 Jack, 12 Queen and 13 King
     color: u8, // 1=Heart 2=Spade 3=Diamond 4=Club
@@ -22,12 +22,13 @@ pub struct GameInfo {
     players_points: HashMap<u32, u32>,
 }
 
-struct Deck {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Deck {
     deck: Vec<Card>,
 }
 
 impl Deck {
-    fn new(num_deck: usize) -> Self {
+    pub fn new(num_deck: usize) -> Self {
         let mut cards = Vec::new();
         for _ in 0..num_deck {
             for color in 0..4 {
@@ -44,6 +45,14 @@ impl Deck {
     fn suffle(&mut self) {
         let mut rng = rand::rng();
         self.deck.shuffle(&mut rng);
+    }
+
+    pub fn draw(&mut self) -> Card {
+        if let Some(card) = self.deck.pop() {
+            return card
+        }
+        *self = Deck::new(54);
+        self.deck.pop().expect("Deck should not be empty ofc")
     }
 }
 
@@ -64,12 +73,12 @@ impl GameInfo {
         serde_json::to_string(&self)
     }
 
-    pub fn hit(&mut self, player_id: u32) -> bool {
+    pub fn hit(&mut self, player_id: u32, deck: &mut Deck) -> bool {
         if self.current_player == player_id {
-            let new_card = self.draw_card();
+            let new_card = deck.draw();
             if let Some(player_deck) = self.players_cards.get_mut(&player_id) {
                 player_deck.push(new_card);
-                self.player_check(player_id);
+                self.player_check(&player_id);
                 self.next_player();
             } else { 
                 println!("Player {} is not in the game", player_id);
@@ -83,35 +92,8 @@ impl GameInfo {
         }
     }
 
-    pub fn draw_card(&self) -> Card {
-        let mut rng = rand::rng();
-        loop {
-            let new_card = Card {
-                color: rng.random_range(1..=4),
-                value: rng.random_range(1..=13),
-            }; // not good -> random over 1..255 -> 1..4 and 1..13
-            if let Some(_) = self.players_cards.values().find(|x| x.contains(&new_card)) {
-                continue
-            }
-            else {
-                return new_card
-            }
-        }
-    }
-
-    pub fn stay(&mut self, player_id: u32) -> bool {
-        match self.players_in_game.binary_search(&player_id) {
-            Ok(idx) => self.players_in_game.remove(idx),
-            Err(_) => return false,
-        };
-        if self.players_in_game.len() == 0 {
-            self.dealer_final();
-        }
-        true
-    }
-
-    pub fn player_check(&mut self, player_id: u32) -> Option<u32> {
-        match self.players_cards.get_mut(&player_id) {
+    pub fn player_check(&self, player_id: &u32) -> Option<u32> {
+        match self.players_cards.get(player_id) {
             Some(cards) => {
                Some(points_sum(cards))
             }
@@ -119,7 +101,7 @@ impl GameInfo {
         }
     }
 
-    fn dealer_final(&mut self) {
+    fn dealer_final(&mut self, deck: &mut Deck) {
         loop {
             self.dealer_points = points_sum(&mut self.dealer_cards);
             if self.dealer_points >= 17 {
@@ -127,7 +109,7 @@ impl GameInfo {
                     break ;
                 }
             }
-            self.dealer_cards.push(self.draw_card());
+            self.dealer_cards.push(deck.draw());
         }
     }
 
@@ -140,8 +122,6 @@ impl GameInfo {
         }
         winners
     }
-
- 
 
     pub fn add_player(&mut self, player_id: u32) {
         self.players_in_game.push(player_id);
@@ -180,11 +160,34 @@ impl GameInfo {
         }
         self.current_player
     }
+
+    pub fn pause_player(&mut self, player_id: &u32, deck: &mut Deck) -> String {
+        match self.players_in_game.iter().position(|x| *x == *player_id) {
+            Some(idx) => { self.players_in_game.remove(idx); }
+            None => { return serde_json::json!({
+                "status": "player already out of game",
+            }).to_string() }
+        }
+        if self.next_player() == 0 {
+            self.dealer_final(deck);
+            serde_json::json!({
+                "status": "player stand correctly",
+                "dealer_turn": true,
+            }).to_string()
+        } else {
+            serde_json::json!({
+                "status": "player stand correctly",
+                "dealer_turn": false,
+            }).to_string()
+        }
+     
+    }
 }
 
 // Rule on how to calculate points -> the most efficient way
 
-pub fn points_sum(cards: &mut Vec<Card>) -> u32 {
+pub fn points_sum(src: &Vec<Card>) -> u32 {
+    let mut cards = src.to_vec();
     let mut total : u32 = 0;
     cards.sort();
     cards.reverse();

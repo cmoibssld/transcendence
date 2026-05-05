@@ -55,10 +55,10 @@ impl GameActor {
         }
     }
     
-    fn check_player(&mut self, player_id: Option<u32>) -> String {
-        match player_id {
+    fn check_player(&mut self, ) -> String {
+        match self.id {
             Some(id) => {
-                match self.manager.lock().unwrap().check_player(id) {
+                match self.manager.lock().unwrap().check_player(&id, &self.table_id) {
                     Some(points) => {
                         if points > 21 { self.phase = Phase::Loser; }
                         else if points == 21 { self.phase = Phase::Winner; }
@@ -75,6 +75,23 @@ impl GameActor {
             None => serde_json::json!({
                 "error": "player not in a game",
             }).to_string()
+        }
+    }
+
+    fn stand(&mut self) -> String {
+        if self.table_id.is_none() || self.id.is_none() {
+            serde_json::json!({
+                "error": "player not in game",
+            }).to_string()
+        } else {
+            if self.phase == Phase::Playing {
+                self.phase = Phase::Waiting;
+                self.manager.lock().unwrap().stand(&self.id.unwrap(), &self.table_id.unwrap())
+            } else {
+                serde_json::json!({
+                    "error": "not player turn",
+                }).to_string()
+            }
         }
     }
 
@@ -139,11 +156,13 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                     "hit" => { 
                         println!("Player wants another card");
                         ctx.text(self.hit(self.id));
-                        ctx.text(self.manager.lock().unwrap().ask_for_info(&self.table_id.unwrap()));
+                        ctx.text(self.check_player());
+                        ctx.text(self.manager.lock().unwrap().ask_for_info(&self.table_id));
                     }
                     "stay" => { 
                         println!("Player is waiting for result");
-                        // ctx.text(self.stand(self.id));
+                        ctx.text(self.stand());
+                        ctx.text(self.manager.lock().unwrap().ask_for_info(&self.table_id));
                     }
                     "join" => { println!("Player wants to join a game");
                         let res = self.join_game(None, ctx);
@@ -153,7 +172,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                                 self.table_id = Some(id.1);
                                 println!("Player {} joined table {}", self.id.unwrap(), self.table_id.unwrap());
                                 self.phase = Phase::Waiting;
-                                let res = self.manager.lock().unwrap().ask_for_info(&self.table_id.unwrap());
+                                let res = self.manager.lock().unwrap().ask_for_info(&self.table_id);
                                 if res.contains(format!("current_player\":{}", self.id.unwrap()).as_str()) {
                                     self.phase = Phase::Playing;
                                 }
