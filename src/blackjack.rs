@@ -69,6 +69,8 @@ impl GameInfo {
             let new_card = self.draw_card();
             if let Some(player_deck) = self.players_cards.get_mut(&player_id) {
                 player_deck.push(new_card);
+                self.player_check(player_id);
+                self.next_player();
             } else { 
                 println!("Player {} is not in the game", player_id);
                 return false 
@@ -108,21 +110,18 @@ impl GameInfo {
         true
     }
 
-    pub fn player_check(&mut self, player_id: u32) -> bool {
-        match self.players_cards.get(&player_id) {
-            Some(_) => {
-                if self.points_sum(&player_id) > 21 {
-                    return false
-                } else {
-                    return true
-                }
-            },
-            None => return false
-        };
+    pub fn player_check(&mut self, player_id: u32) -> Option<u32> {
+        match self.players_cards.get_mut(&player_id) {
+            Some(cards) => {
+               Some(points_sum(cards))
+            }
+            None => None
+        }
     }
 
     fn dealer_final(&mut self) {
         loop {
+            self.dealer_points = points_sum(&mut self.dealer_cards);
             if self.dealer_points >= 17 {
                 if self.winning_player() < 2 {
                     break ;
@@ -135,39 +134,14 @@ impl GameInfo {
     fn winning_player(&self) -> u8 {
         let mut winners: u8 = 0;
         for value in self.players_points.values() {
-            if *value > self.dealer_points && *value <= 21 {
+            if *value > self.dealer_points && *value <= 21 || self.dealer_points > 21 && *value <= 21 {
                 winners += 1;
             }
         }
         winners
     }
 
-    fn points_sum(&mut self, player_id: &u32) -> u32 {
-        let cards = self.players_cards.get_mut(player_id).unwrap();
-        let mut total : u32 = 0;
-        cards.sort();
-        cards.reverse();
-        for card in cards.iter() {
-            if card.value == 1 {
-                break ;
-            }
-            total += card.value as u32;
-        }
-        let mut total_ace : u32 = 0;
-        for _ in cards.iter() {
-            total_ace += 1;
-        }
-        if total_ace + total > 21 {
-            let mut high_ace : u32 = total_ace;
-            while high_ace != 0 {
-                if high_ace + total <= 21 {
-                    return high_ace + total
-                }
-                high_ace -= 1;
-            }
-        }
-        total + total_ace
-    }
+ 
 
     pub fn add_player(&mut self, player_id: u32) {
         self.players_in_game.push(player_id);
@@ -206,6 +180,34 @@ impl GameInfo {
         }
         self.current_player
     }
+}
+
+// Rule on how to calculate points -> the most efficient way
+
+pub fn points_sum(cards: &mut Vec<Card>) -> u32 {
+    let mut total : u32 = 0;
+    cards.sort();
+    cards.reverse();
+    for card in cards.iter() {
+        if card.value == 1 {
+            break ;
+        }
+        total += card.value as u32;
+    }
+    let mut total_ace : u32 = 0;
+    for _ in cards.iter() {
+        total_ace += 1;
+    }
+    if total_ace + total > 21 {
+        let mut high_ace : u32 = total_ace;
+        while high_ace != 0 {
+            if high_ace + total <= 21 {
+                return high_ace + total
+            }
+            high_ace -= 1;
+        }
+    }
+    total + total_ace
 }
 
 

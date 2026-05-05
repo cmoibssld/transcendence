@@ -86,7 +86,8 @@ impl GameManager {
 
     fn hit(&mut self, player_id: u32) -> String {
         match self.info.hit(player_id) {
-            true => serde_json::json!({
+            true =>
+                serde_json::json!({
                 "success": "new card",
             }).to_string(),
             false => serde_json::json!({
@@ -94,7 +95,10 @@ impl GameManager {
             }).to_string(),
         }
     }
-}
+
+    pub fn check_player(&self, player_id: u32) -> Option<u32> {
+        self.info.player_check(player_id)
+    }
 
 impl GameData {
     pub fn new() -> GameData {

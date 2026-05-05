@@ -17,6 +17,7 @@ enum Phase {
     Inlobby,
     Waiting,
     Playing,
+    Winner,
     Loser,
 }
 
@@ -51,6 +52,29 @@ impl GameActor {
                     "error": "player cannot hit",
                 }).to_string()
             }
+        }
+    }
+    
+    fn check_player(&mut self, player_id: Option<u32>) -> String {
+        match player_id {
+            Some(id) => {
+                match self.manager.lock().unwrap().check_player(id) {
+                    Some(points) => {
+                        if points > 21 { self.phase = Phase::Loser; }
+                        else if points == 21 { self.phase = Phase::Winner; }
+                        serde_json::json!({
+                            "player_id": id,
+                            "total": points,
+                        }).to_string()
+                    }
+                    None => serde_json::json!({
+                        "error": "cannot find player's cards",
+                    }).to_string()
+                }
+            }
+            None => serde_json::json!({
+                "error": "player not in a game",
+            }).to_string()
         }
     }
 
