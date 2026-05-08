@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Result;
 use std::collections::HashMap;
 use rand::prelude::*;
+use actix::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Ord, Eq, PartialOrd, Clone)]
 pub struct Card {
@@ -12,6 +13,8 @@ pub struct Card {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[derive(Message)]
+#[rtype(result="()")]
 pub struct GameInfo {
     table_id: u32,
     current_player: u32,
@@ -56,6 +59,19 @@ impl Deck {
     }
 }
 
+impl Clone for GameInfo {
+    fn clone(&self) -> Self { 
+        GameInfo {
+            dealer_cards: self.dealer_cards.clone(),
+            players_in_game: self.players_in_game.clone(),
+            players_cards: self.players_cards.clone(),
+            players_points: self.players_points.clone(),
+            ..*self
+        }
+    }
+
+}
+
 impl GameInfo {
     pub fn new(table_id: u32) -> GameInfo {
         GameInfo {
@@ -71,6 +87,11 @@ impl GameInfo {
 
     pub fn get_info(&self) -> Result<String> {
         serde_json::to_string(&self)
+    }
+    
+    pub fn dealer_first_card(&mut self, deck: &mut Deck) {
+        self.dealer_cards.push(deck.draw());
+        self.dealer_points = points_sum(&self.dealer_cards);
     }
 
     pub fn hit(&mut self, player_id: u32, deck: &mut Deck) -> bool {
@@ -92,10 +113,16 @@ impl GameInfo {
         }
     }
 
-    pub fn player_check(&self, player_id: &u32) -> Option<u32> {
+    pub fn get_current_player(&self) -> u32 {
+        self.current_player
+    }
+
+    pub fn player_check(&mut self, player_id: &u32) -> Option<u32> {
         match self.players_cards.get(player_id) {
             Some(cards) => {
-               Some(points_sum(cards))
+               let total = points_sum(cards);
+               self.players_points.entry(*player_id).and_modify(|pts| *pts = total);
+               Some(total)
             }
             None => None
         }
@@ -187,19 +214,18 @@ impl GameInfo {
 // Rule on how to calculate points -> the most efficient way
 
 pub fn points_sum(src: &Vec<Card>) -> u32 {
-    let mut cards = src.to_vec();
     let mut total : u32 = 0;
-    cards.sort();
-    cards.reverse();
-    for card in cards.iter() {
-        if card.value == 1 {
-            break ;
-        }
-        total += card.value as u32;
-    }
     let mut total_ace : u32 = 0;
-    for _ in cards.iter() {
-        total_ace += 1;
+    for card in src.iter() {
+        if card.value == 1 {
+            total_ace += 1;
+            
+        } else if card.value >= 11 {
+            total += 10;
+            
+        } else {
+            total += card.value as u32;
+        }
     }
     if total_ace + total > 21 {
         let mut high_ace : u32 = total_ace;

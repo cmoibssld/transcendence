@@ -1,6 +1,6 @@
 use actix::{Actor, Addr, Context};
 use std::collections::HashMap;
-use crate::game::GameActor;
+use crate::game::{GameActor, Phase};
 use crate::blackjack::{GameInfo, Deck};
 use std::sync::Mutex;
 use rand::prelude::*;
@@ -42,10 +42,13 @@ pub enum GameError {
 
 impl GameManager {
     pub fn new(table_id: &u32) -> GameManager {
+        let mut info = GameInfo::new(*table_id);
+        let mut deck = Deck::new(54);
+        info.dealer_first_card(&mut deck);
         GameManager {
             game: HashMap::with_capacity(3), // at least 3 players. No more
-            info: GameInfo::new(*table_id),
-            deck: Deck::new(54),
+            info,
+            deck,
             open: true,
         }
     }
@@ -77,13 +80,23 @@ impl GameManager {
         return false;
     }
 
-    pub fn ask_for_info(&self) -> String {
-        match self.info.get_info() {
-            Ok(id) => id,
-            Err(_) => serde_json::json!({
-                "error": "bad request",
-                }).to_string(),
+    // pub fn ask_for_info(&self) -> String {
+    //     match self.info.get_info() {
+    //         Ok(id) => id,
+    //         Err(_) => serde_json::json!({
+    //             "error": "bad request",
+    //             }).to_string(),
+    //     }
+    // }
+
+    pub fn give_info(&self) -> Option<u8> {
+        // return how much player were informed
+        let mut send = 0;
+        for player in self.game.values() {
+            player.do_send(self.info.clone());
+            send += 1;
         }
+        Some(send)
     }
 
     pub fn hit(&mut self, player_id: u32) -> String {
@@ -98,7 +111,12 @@ impl GameManager {
         }
     }
 
-    pub fn check_player(&self, player_id: &u32) -> Option<u32> {
+    pub fn check_player(&mut self, player_id: &u32, phase: &mut Phase) -> Option<u32> {
+        if self.info.get_current_player() == *player_id {
+            *phase = Phase::Playing; 
+        } else {
+            *phase = Phase::Waiting;
+        }
         self.info.player_check(player_id)
     }
     
@@ -184,7 +202,12 @@ impl GameData {
         let table_id = table_id.unwrap();
         println!("asking for info on table {}", table_id);
         match self.tables.get(&table_id) {
-            Some(game) => game.lock().unwrap().ask_for_info(),
+            Some(game) => {
+                game.lock().unwrap().give_info();
+                serde_json::json!({
+                    "resutl": "success",
+                }).to_string()
+            }
             None => {serde_json::json!({
                 "status": "waiting",
                 "error": "table id not found",
@@ -200,11 +223,11 @@ impl GameData {
         }
     }
 
-    pub fn check_player(&self, player_id: &u32, table_id: &Option<u32>) -> Option<u32> {
+    pub fn check_player(&self, player_id: &u32, table_id: &Option<u32>, phase: &mut Phase) -> Option<u32> {
         match table_id {
             Some(table_id) => {
                 match self.tables.get(table_id) {
-                    Some(game) => game.lock().unwrap().check_player(player_id),
+                    Some(game) => game.lock().unwrap().check_player(player_id, phase),
                     None => None,
                 }
             }
