@@ -227,7 +227,7 @@ pub fn points_sum(src: &Vec<Card>) -> u32 {
             total += card.value as u32;
         }
     }
-    if total_ace + total > 21 {
+    if total_ace * 11 + total > 21 {
         let mut high_ace : u32 = total_ace;
         while high_ace != 0 {
             if high_ace + total <= 21 {
@@ -236,7 +236,8 @@ pub fn points_sum(src: &Vec<Card>) -> u32 {
             high_ace -= 1;
         }
     }
-    total + total_ace
+    total + total_ace * 11
+    // ace calculus is a bit weird here now
 }
 
 

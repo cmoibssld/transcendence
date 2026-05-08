@@ -80,15 +80,6 @@ impl GameManager {
         return false;
     }
 
-    // pub fn ask_for_info(&self) -> String {
-    //     match self.info.get_info() {
-    //         Ok(id) => id,
-    //         Err(_) => serde_json::json!({
-    //             "error": "bad request",
-    //             }).to_string(),
-    //     }
-    // }
-
     pub fn give_info(&self) -> Option<u8> {
         // return how much player were informed
         let mut send = 0;
