@@ -7,6 +7,7 @@ import Rules from "./pages/Rules"
 import Game from "./pages/Game"
 import Statistics from "./pages/Statistics"
 import Settings from "./pages/Settings"
+import Login from "./pages/Login"
 import History from "./pages/History"
 import "./App.css"
 
@@ -17,6 +18,7 @@ function App() {
 
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/friends" element={<Friends />} />
         <Route path="/statistics" element={<Statistics />} />
