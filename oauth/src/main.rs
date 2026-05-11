@@ -6,8 +6,7 @@ use jsonwebtoken::{encode, Header, EncodingKey};
 use chrono::{Utc, Duration};
 use rand::{distributions::Alphanumeric, Rng};
 use bcrypt::{hash, verify, DEFAULT_COST};
-use sqlx::MySqlPool;
-use sqlx::mysql::MySqlQueryResult;
+use sqlx::PgPool;
 use actix_web::web::Data;
 use sqlx;
 
@@ -63,6 +62,7 @@ struct LocalLoginRequest {
 #[derive(Deserialize)]
 struct RegisterRequest {
     username: String,
+    email: String,
     password: String,
 }
 
@@ -118,29 +118,29 @@ async fn refresh_token(body: web::Json<RefreshRequest>) -> Result<HttpResponse> 
     Ok(HttpResponse::Ok().json(response_data))
 }
 
-async fn register(pool: web::Data<MySqlPool>, body: web::Json<RegisterRequest>) -> impl Responder {
+async fn register(pool: web::Data<PgPool>, body: web::Json<RegisterRequest>) -> impl Responder {
     let user_data = body.into_inner();
+    let username = user_data.username;
+    let email = user_data.email;
 
-    let _hashed_password = match hash(&user_data.password, DEFAULT_COST) {
+    let hashed_password = match hash(&user_data.password, DEFAULT_COST) {
         Ok(h) => h,
         Err(_) => return HttpResponse::InternalServerError().json(serde_json::json!({"error": "Erreur de hachage"})),
     };
 
-    //SAVE USER DATA USERNAME ET HSAHED PASSWORD DANS DB
     //CHECK PSEUDO UNIQUE
 
-    let result = sqlx::query!(
-        "INSERT INTO users (username, password) VALUES (?, ?)",
-        user_data.username,
-        hashed_password
-    )
+    let result = sqlx::query("INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3)")
+    .bind(&username)
+    .bind(&email)
+    .bind(&hashed_password)
     .execute(pool.get_ref())
     .await;
 
     match result {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({
             "message": "User created with success",
-            "username": user_data.username
+            "username": username
         })),
         Err(e) => {
             HttpResponse::Conflict().json(serde_json::json!({"error": format!("Database error: {}", e)}))
@@ -148,21 +148,39 @@ async fn register(pool: web::Data<MySqlPool>, body: web::Json<RegisterRequest>) 
     }
 }
 
-async fn login(body: web::Json<LocalLoginRequest>) -> Result<HttpResponse> {
+async fn login(pool: web::Data<PgPool>, body: web::Json<LocalLoginRequest>) -> impl Responder {
     let login_data = body.into_inner();
 
-    //Check user in db
-    let fake_db_id = 99;
-    let fake_db_hash: String = hash("azerty", DEFAULT_COST).unwrap(); 
+    let db_id_result: Result<Option<i32>, _> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+        .bind(&login_data.username)
+        .fetch_optional(pool.get_ref())
+        .await;
+
+    let db_id = match db_id_result {
+        Ok(Some(id)) => id,
+        _ => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "Wrong credentials"})),
+    };
+
+    let db_hash_result: Result<Option<String>, _> = sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
+        .bind(&db_id)
+        .fetch_optional(pool.get_ref())
+        .await;
+
+    let db_hash = match db_hash_result {
+        Ok(Some(hash)) => hash,
+        _ => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "Wrong credentials"})),
+    };
 
     //Chck Password
-    let is_valid = verify(&login_data.password, &fake_db_hash).unwrap_or(false);
+    let is_valid = verify(&login_data.password, &db_hash).unwrap_or(false);
 
     if is_valid {
-        let response_data = generate_tokens_response(fake_db_id, login_data.username, None)?;
-        Ok(HttpResponse::Ok().json(response_data))
+        match generate_tokens_response(db_id as u64, login_data.username, None) {
+            Ok(response_data) => HttpResponse::Ok().json(response_data),
+            Err(_) => HttpResponse::InternalServerError().json(serde_json::json!({"error": "Token generation failed"})),
+        }
     } else {
-        Ok(HttpResponse::Unauthorized().json(serde_json::json!({"error": "Wrong credentials"})))
+        HttpResponse::Unauthorized().json(serde_json::json!({"error": "Wrong credentials"}))
     }
 }
 
@@ -256,7 +274,7 @@ async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
     
     let conn_str = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = MysqlPool::connect(&conn_str).await.expect("Failed to connect to database");
+    let pool = PgPool::connect(&conn_str).await.expect("Failed to connect to database");
 
     HttpServer::new(move || {
         App::new()

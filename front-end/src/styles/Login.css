@@ -407,6 +407,24 @@
   cursor: pointer;
 }
 
+.register-link {
+  display: inline-flex;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.login-error {
+  margin: 0;
+  color: #ff8f8f;
+  font-size: 0.9rem;
+}
+
+.login-success {
+  margin: 0;
+  color: #8ef0be;
+  font-size: 0.9rem;
+}
+
 .divider {
   display: flex;
   align-items: center;

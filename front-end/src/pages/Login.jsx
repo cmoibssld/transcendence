@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
 import "../styles/Login.css"
 
 const Login = () => {
@@ -103,6 +104,10 @@ const Login = () => {
                     <button className="github-button" type="button" onClick={handleGitHubLogin}>
                         Continuer avec GitHub
                     </button>
+
+                    <Link className="github-button register-link" to="/register">
+                        Pas de compte ? S'inscrire
+                    </Link>
                 </form>
             </div>
         </div>
