@@ -68,6 +68,10 @@ impl Deck {
             false
         }
     }
+
+    pub fn another_shuffle(&mut self) {
+        *self = Deck::new(54);
+    }
 }
 
 impl Clone for GameInfo {
@@ -212,12 +216,15 @@ impl GameInfo {
     pub fn save_endgame(&self) -> std::io::Result <()> {
         let mut file = File::create("log.txt")?;
         let info = serde_json::to_string(self)?;
-        file.write_all(info.as_bytes());
+        file.write_all(info.as_bytes()).unwrap();
         Ok(())
     }
 
     pub fn restart(&mut self, deck: &mut Deck) {
         self.dealer_cards.clear();
+        if deck.half_draw() {
+            deck.another_shuffle();
+        }
         self.dealer_first_card(deck);
     }
 }

@@ -120,8 +120,20 @@ impl GameManager {
                 if players_in_game == 0 {
                     self.info.dealer_final(&mut self.deck);
                     self.give_info();
+                    let mut i = 0;
+                    loop {
+                        match self.info.save_endgame() {
+                            Ok(_) => { break; }
+                            Err(_) => { i += 1; if i > 20 { break ; }
+                            }
+                        }
+                    }
                     self.restart_table();
                 }
+                else {
+                    self.give_info();
+                }
+                
                 serde_json::json!({
                     "result": "player stand correctly",
                 }).to_string()
@@ -260,7 +272,7 @@ impl GameData {
         match self.tables.get(table_id) {
             Some(game) => game.lock().unwrap().stand(player_id),
             None => serde_json::json!({
-                "error": "cannot find player's table",
+                "error": "cannot find player')s table",
             }).to_string()
         }
     }
