@@ -105,6 +105,7 @@ impl GameManager {
     }
 
     pub fn check_player(&mut self, player_id: &u32, phase: &mut Phase) -> Option<u32> {
+        self.open = false;
         if self.info.get_current_player() == *player_id {
             *phase = Phase::Playing; 
         } else {
@@ -135,6 +136,7 @@ impl GameManager {
         }
         self.info.restart(&mut self.deck);
         self.round_nb += 1;
+        self.open = true;
         println!("Starting round {}", self.round_nb);
         serde_json::json!({
             "result": "table restarted",
