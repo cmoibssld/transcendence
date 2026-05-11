@@ -169,7 +169,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         println!("Player is waiting for result");
                         ctx.text(self.stand());
                         self.check_player();
-                        ctx.text(self.manager.lock().unwrap().ask_for_info(&self.table_id));
                         self.manager.lock().unwrap().ask_for_info(&self.table_id);
                     }
                     "join" => { println!("Player wants to join a game");

@@ -119,6 +119,8 @@ impl GameManager {
             Some(players_in_game) => {
                 if players_in_game == 0 {
                     self.info.dealer_final(&mut self.deck);
+                    self.give_info();
+                    self.restart_table();
                 }
                 serde_json::json!({
                     "result": "player stand correctly",
@@ -220,7 +222,6 @@ impl GameData {
             }).to_string()
         }
         let table_id = table_id.unwrap();
-        println!("asking for info on table {}", table_id);
         match self.tables.get(&table_id) {
             Some(game) => {
                 game.lock().unwrap().give_info();

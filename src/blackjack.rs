@@ -56,6 +56,7 @@ impl Deck {
         if let Some(card) = self.deck.pop() {
             return card
         }
+        // This should be changed I guess
         *self = Deck::new(54);
         self.deck.pop().expect("Deck should not be empty ofc")
     }
