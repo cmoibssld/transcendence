@@ -16,6 +16,7 @@ struct GameManager {
     pub info: GameInfo,
     deck: Deck,
     pub open: bool,
+    round_nb: u32,
 }
 
 impl Actor for GameManager {
@@ -50,6 +51,7 @@ impl GameManager {
             info,
             deck,
             open: true,
+            round_nb: 1,
         }
     }
 
@@ -112,7 +114,31 @@ impl GameManager {
     }
     
     pub fn stand(&mut self, player_id: &u32) -> String {
-        self.info.pause_player(player_id, &mut self.deck)
+        match self.info.pause_player(player_id) {
+            Some(players_in_game) => {
+                if players_in_game == 0 {
+                    self.info.dealer_final(&mut self.deck);
+                }
+                serde_json::json!({
+                    "result": "player stand correctly",
+                }).to_string()
+            }
+            None => serde_json::json!({
+                "error": "player cannot stand",
+            }).to_string()
+        }
+    }
+
+    pub fn restart_table(&mut self) -> String {
+        for id in self.game.keys() {
+            self.info.add_player(*id);
+        }
+        self.info.restart(&mut self.deck);
+        self.round_nb += 1;
+        serde_json::json!({
+            "result": "table restarted",
+            "round": self.round_nb,
+        }).to_string()
     }
 }
 

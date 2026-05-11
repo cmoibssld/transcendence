@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::prelude::*;
 use rand::prelude::*;
 use actix::prelude::*;
 
@@ -56,6 +58,14 @@ impl Deck {
         }
         *self = Deck::new(54);
         self.deck.pop().expect("Deck should not be empty ofc")
+    }
+
+    pub fn half_draw(&self) -> bool {
+        if self.deck.len() <= 54 {
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -128,7 +138,7 @@ impl GameInfo {
         }
     }
 
-    fn dealer_final(&mut self, deck: &mut Deck) {
+    pub fn dealer_final(&mut self, deck: &mut Deck) {
         loop {
             self.dealer_points = points_sum(&mut self.dealer_cards);
             if self.dealer_points >= 17 {
@@ -188,26 +198,26 @@ impl GameInfo {
         self.current_player
     }
 
-    pub fn pause_player(&mut self, player_id: &u32, deck: &mut Deck) -> String {
+    pub fn pause_player(&mut self, player_id: &u32) -> Option<usize> {
         match self.players_in_game.iter().position(|x| *x == *player_id) {
-            Some(idx) => { self.players_in_game.remove(idx); }
-            None => { return serde_json::json!({
-                "status": "player already out of game",
-            }).to_string() }
+            Some(idx) => { 
+                self.players_in_game.remove(idx); 
+                Some(self.players_in_game.len())
+            }
+            None => None
         }
-        if self.next_player() == 0 {
-            self.dealer_final(deck);
-            serde_json::json!({
-                "status": "player stand correctly",
-                "dealer_turn": true,
-            }).to_string()
-        } else {
-            serde_json::json!({
-                "status": "player stand correctly",
-                "dealer_turn": false,
-            }).to_string()
-        }
-     
+    }
+
+    pub fn save_endgame(&self) -> std::io::Result <()> {
+        let mut file = File::create("log.txt")?;
+        let info = serde_json::to_string(self)?;
+        file.write_all(info.as_bytes());
+        Ok(())
+    }
+
+    pub fn restart(&mut self, deck: &mut Deck) {
+        self.dealer_cards.clear();
+        self.dealer_first_card(deck);
     }
 }
 
