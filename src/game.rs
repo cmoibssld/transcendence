@@ -55,8 +55,12 @@ impl GameActor {
             Some(id) => {
                 match self.manager.lock().unwrap().check_player(&id, &self.table_id, &mut self.phase) {
                     Some(points) => {
-                        if points > 21 { self.phase = Phase::Loser; }
-                        else if points == 21 { self.phase = Phase::Winner; }
+                        if points > 21 { 
+                            self.phase = Phase::Loser; 
+                        }
+                        else if points == 21 { 
+                            self.phase = Phase::Winner; 
+                        }
                         serde_json::json!({
                             "player_id": id,
                             "total": points,

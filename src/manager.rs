@@ -135,6 +135,7 @@ impl GameManager {
         }
         self.info.restart(&mut self.deck);
         self.round_nb += 1;
+        println!("Starting round {}", self.round_nb);
         serde_json::json!({
             "result": "table restarted",
             "round": self.round_nb,
