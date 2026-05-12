@@ -54,16 +54,17 @@ impl GameActor {
         match self.id {
             Some(id) => {
                 println!("Checking player");
-                match self.manager.lock().unwrap().check_player(&id, &self.table_id, &mut self.phase) {
+                let mut manager = self.manager.lock().unwrap();
+				match manager.check_player(&id, &self.table_id, &mut self.phase) {
                     Some(points) => {
                         if points > 21 { 
                             println!("Player lost this round");
                             self.phase = Phase::Loser; 
-                            return self.manager.lock().unwrap().stand(&id, &self.table_id.unwrap())
+                            manager.stand(&id, &self.table_id.unwrap());
                         }
                         else if points == 21 { 
                             self.phase = Phase::Winner; 
-                            return self.manager.lock().unwrap().stand(&id, &self.table_id.unwrap())
+                            manager.stand(&id, &self.table_id.unwrap());
                         }
                         serde_json::json!({
                             "player_id": id,

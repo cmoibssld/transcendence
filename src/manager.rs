@@ -124,7 +124,7 @@ impl GameManager {
                     loop {
                         match self.info.save_endgame() {
                             Ok(_) => { break; }
-                            Err(_) => { i += 1; if i > 20 { break ; }
+                            Err(_) => { i += 1; println!("trying another time"); if i > 20 { break ; }
                             }
                         }
                     }
