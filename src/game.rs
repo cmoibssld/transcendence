@@ -53,13 +53,17 @@ impl GameActor {
     fn check_player(&mut self, ) -> String {
         match self.id {
             Some(id) => {
+                println!("Checking player");
                 match self.manager.lock().unwrap().check_player(&id, &self.table_id, &mut self.phase) {
                     Some(points) => {
                         if points > 21 { 
+                            println!("Player lost this round");
                             self.phase = Phase::Loser; 
+                            return self.manager.lock().unwrap().stand(&id, &self.table_id.unwrap())
                         }
                         else if points == 21 { 
                             self.phase = Phase::Winner; 
+                            return self.manager.lock().unwrap().stand(&id, &self.table_id.unwrap())
                         }
                         serde_json::json!({
                             "player_id": id,
@@ -162,6 +166,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                     "hit" => { 
                         println!("Player wants another card");
                         ctx.text(self.hit(self.id));
+                        // println!("Checking player points");
                         ctx.text(self.check_player());
                         self.manager.lock().unwrap().ask_for_info(&self.table_id);
                     }
