@@ -268,7 +268,7 @@ impl GameData {
         }
     }
 
-    pub fn stand(&mut self, player_id: &u32, table_id: &u32) -> String {
+    pub fn stand(&mut self, player_id: &u32, table_id: &u32, phase: &mut Phase) -> String {
         match self.tables.get(table_id) {
             Some(game) => game.lock().unwrap().stand(player_id),
             None => serde_json::json!({

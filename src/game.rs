@@ -88,7 +88,7 @@ impl GameActor {
            self.manager.lock().unwrap().stand(&self.id.unwrap(), &self.table_id.unwrap())
         } else {
             serde_json::json!({
-                "error": "not player turn",
+                "error": "can't stand, not player turn",
             }).to_string()
         }
     }
