@@ -1,0 +1,7 @@
+.game-area {
+  min-height: calc(100vh - 104px);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+}
+  

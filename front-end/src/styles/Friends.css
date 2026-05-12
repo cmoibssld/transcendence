@@ -1,0 +1,118 @@
+.friends-page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px;
+}
+
+.top-bar {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.friends-label {
+    margin: 8px 0 0;
+    font-size: clamp(1.5rem, 2.8vw, 2rem);
+}
+
+.search-bar {
+    flex: 1;
+    min-width: min(100%, 320px);
+    max-width: 420px;
+}
+
+.search-bar input {
+    width: 100%;
+    padding: 13px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    outline: none;
+}
+
+.search-bar input:focus {
+    border-color: rgba(214, 177, 91, 0.5);
+    box-shadow: 0 0 0 4px rgba(214, 177, 91, 0.08);
+}
+
+.friends-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+}
+
+.friend-card {
+    min-height: 280px;
+    padding: 22px;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.friend-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(214, 177, 91, 0.24);
+    box-shadow: 0 18px 30px rgba(0, 0, 0, 0.24);
+}
+
+.friend-avatar {
+    width: 88px;
+    height: 88px;
+    border-radius: 22px;
+    object-fit: cover;
+    border: 1px solid rgba(214, 177, 91, 0.24);
+}
+
+.friend-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.friend-gains {
+    color: rgba(214, 177, 91, 0.9);
+}
+
+.friend-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: rgba(244, 239, 229, 0.72);
+}
+
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.dot.online {
+    background: #48c96a;
+    box-shadow: 0 0 10px rgba(72, 201, 106, 0.45);
+}
+
+.dot.offline {
+    background: #6c7170;
+}
+
+.no-friends {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 48px 20px;
+    color: rgba(244, 239, 229, 0.68);
+}
+
+.no-friends p {
+    margin: 0 0 8px;
+    font-size: 1.3rem;
+    color: var(--text);
+}

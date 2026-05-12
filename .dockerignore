@@ -1,0 +1,21 @@
+# Ignore build artifacts and cache
+*/target/
+*/.git/
+*/node_modules/
+*/.next/
+*/dist/
+
+# Ignore common files
+.git/
+.gitignore
+.env.local
+.env.*.local
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.iml
+README.md
+

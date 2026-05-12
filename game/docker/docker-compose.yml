@@ -1,0 +1,27 @@
+services:
+  postgresql:
+    image: postgres:latest
+    container_name: postgresql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydatabase
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+
+  game_engine:
+    build: ./src/game_engine
+    container_name: game_engine
+    ports:
+      - "4567:4567"
+
+volumes:
+  pgdata:
+    driver: local 
+    driver_opts:
+      type: none
+      device: ./data/postgresql
+      o: bind
+
