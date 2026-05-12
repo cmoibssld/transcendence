@@ -179,11 +179,12 @@ impl GameInfo {
             Some(index) => {
                 self.players_in_game.remove(index);
             }
-            None => {  }
+            None => {  println!("can't find player"); }
         };
         self.players_cards.remove(&player_id);
         self.players_points.remove(&player_id);
         if self.current_player == player_id {
+            println!("player was main. Quicking him out");
             self.next_player();
         }
     }

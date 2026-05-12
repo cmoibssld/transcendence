@@ -83,21 +83,15 @@ impl GameActor {
     }
 
     fn stand(&mut self) -> String {
-        if self.phase == Phase::Playing {
-           self.phase = Phase::Waiting;
-           self.manager.lock().unwrap().stand(&self.id.unwrap(), &self.table_id.unwrap())
-        } else {
-            serde_json::json!({
-                "error": "can't stand, not player turn",
-            }).to_string()
-        }
+        self.manager.lock().unwrap().stand(&self.id.unwrap(), &self.table_id.unwrap())
     }
 
     fn leave_game(&mut self) {
         if self.phase == Phase::Inlobby {
             return
         }
-        self.manager.lock().unwrap().remove_player(self.table_id, self.id);
+        let guard = self.manager.lock().unwrap();
+        guard.remove_player(self.table_id, self.id);
         self.id = None;
         self.table_id = None;
         self.phase = Phase::Inlobby;
