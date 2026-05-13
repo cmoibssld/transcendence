@@ -5,15 +5,27 @@ services:
     restart: always
     networks:
       - transcendance
+    secrets:
+      - ssl_cert
+      - ssl_key
 
-    backend:
-      container_name: backend
-      build: docker/backend
+    load-balancer:
+      container_name: load-balancer
+      build: docker/load-balancer
       restart: always
       ports:
         - "3000:3000"
       networks:
         - transcendance
+      secrets:
+        - ssl_cert
+        - ssl_key
 
 networks:
   transcendance:
+
+secrets:
+  ssl_cert:
+    file: docker/secrets/cert.pem
+  ssl_key:
+    file: docker/secrets/key.pem
