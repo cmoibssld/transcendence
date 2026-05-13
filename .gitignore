@@ -1,5 +1,5 @@
 /target
 .env
-docker/data
+docker/*/target
 .DS_Store
 log.txt
