@@ -2,3 +2,4 @@
 .env
 docker/data
 .DS_Store
+log.txt

@@ -20,3 +20,5 @@ Backend framework guide to put in place most of the features
 
 - Are we web yet?, https://www.arewewebyet.org/
 A most useful website to choose between Rust web framework and get examples and help for web developpement in Rust
+
+- To create the reverse-proxy to use as a gateway for the multi-container backend, we used this repo for inspiration: https://github.com/MarmadileManteater/SimpleReverseProxy

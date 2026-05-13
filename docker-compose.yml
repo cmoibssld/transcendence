@@ -1,0 +1,19 @@
+services:
+  game-engine:
+    container_name: game-engine
+    build: docker/game_engine
+    restart: always
+    networks:
+      - transcendance
+
+    backend:
+      container_name: backend
+      build: docker/backend
+      restart: always
+      ports:
+        - "3000:3000"
+      networks:
+        - transcendance
+
+networks:
+  transcendance:
