@@ -146,6 +146,9 @@ impl GameInfo {
     pub fn dealer_final(&mut self, deck: &mut Deck) {
         loop {
             self.dealer_points = points_sum(&mut self.dealer_cards);
+            if self.winning_player() == 0 {
+                break ;
+            }
             if self.dealer_points >= 17 {
                 if self.winning_player() < 2 {
                     break ;
