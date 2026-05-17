@@ -1,0 +1,31 @@
+services:
+  game-engine:
+    container_name: game-engine
+    build: game-engine
+    restart: always
+    networks:
+      - transcendance
+    secrets:
+      - ssl_cert
+      - ssl_key
+
+  reverse-proxy:
+    container_name: reverse-proxy
+    build: reverse-proxy
+    restart: always
+    ports:
+      - "3000:3000"
+    networks:
+      - transcendance
+    secrets:
+      - ssl_cert
+      - ssl_key
+
+networks:
+  transcendance:
+
+secrets:
+  ssl_cert:
+    file: secrets/cert.pem
+  ssl_key:
+    file: secrets/key.pem
