@@ -10,6 +10,7 @@ import Settings from "./pages/Settings"
 import Login from "./pages/Login"
 import Register from "./pages/Register"
 import History from "./pages/History"
+import Chat from "./pages/Chat"
 import "./App.css"
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
             <Route path="/statistics" element={<Statistics />} />
             <Route path="/rules" element={<Rules />} />
             <Route path="/game" element={<Game />} />
+            <Route path="/chat" element={<Chat />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/history" element={<History />} />
           </Routes>

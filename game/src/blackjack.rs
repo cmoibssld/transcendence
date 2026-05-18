@@ -36,7 +36,7 @@ impl Deck {
     pub fn new(num_deck: usize) -> Self {
         let mut cards = Vec::new();
         for _ in 0..num_deck {
-            for color in 0..4 {
+            for color in 1..=4 {
                 for value in 1..=13 {
                     cards.push(Card{ value, color });
                 }
@@ -115,7 +115,6 @@ impl GameInfo {
             if let Some(player_deck) = self.players_cards.get_mut(&player_id) {
                 player_deck.push(new_card);
                 self.player_check(&player_id);
-                self.next_player();
             } else { 
                 println!("Player {} is not in the game", player_id);
                 return false 
@@ -171,6 +170,16 @@ impl GameInfo {
         self.players_points.insert(player_id, 0);
         if self.players_in_game.len() == 1 {
             self.current_player = player_id;
+        }
+    }
+
+    pub fn deal_to_player(&mut self, player_id: u32, deck: &mut Deck, n: usize) {
+        if let Some(player_deck) = self.players_cards.get_mut(&player_id) {
+            for _ in 0..n {
+                player_deck.push(deck.draw());
+            }
+            // update points after dealing
+            self.player_check(&player_id);
         }
     }
 

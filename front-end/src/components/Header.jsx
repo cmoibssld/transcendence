@@ -20,6 +20,7 @@ const Header = () => {
         <Link to="/statistics">Stats</Link>
         <Link to="/history">History</Link>
         <Link to="/rules">Rules</Link>
+        <Link to="/chat">Chat</Link>
       </nav>
 
       <Link to="/settings" className="settings-link" aria-label="Settings">

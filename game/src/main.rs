@@ -1,16 +1,33 @@
 use actix_web::{web, App, Error, HttpServer, HttpRequest, HttpResponse};
 use actix_files::Files;
 use actix_web_actors::ws;
+use actix_cors::Cors;
 use std::sync::Mutex;
+use serde::Deserialize;
 
 mod game;
 mod manager;
 mod blackjack;
 
+#[derive(Deserialize)]
+struct WsQuery {
+    table_id: Option<u32>,
+}
+
 async fn game_ws(req: HttpRequest, stream: web::Payload, data: web::Data<Mutex<manager::GameData>>) -> Result<HttpResponse, Error> {
     println!("Creating websocket co");
-    let new_player = game::GameActor::new(data.clone());
+    let requested_table_id = req
+        .uri()
+        .query()
+        .and_then(|query| web::Query::<WsQuery>::from_query(query).ok())
+        .and_then(|query| query.table_id);
+    let new_player = game::GameActor::new(data.clone(), requested_table_id);
     ws::start(new_player, &req, stream)
+}
+
+async fn list_tables(data: web::Data<Mutex<manager::GameData>>) -> HttpResponse {
+    let list = data.lock().unwrap().list_tables();
+    HttpResponse::Ok().content_type("application/json").body(list)
 }
 
 #[actix_web::main]
@@ -19,13 +36,20 @@ async fn main() -> std::io::Result<()> {
     let game_data = web::Data::new(Mutex::new(manager::GameData::new()));
 
     HttpServer::new(move || {
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header();
+
         App::new()
+            .wrap(cors)
             .app_data(game_data.clone())
             .route("/ws/", web::get().to(game_ws))
+            .route("/tables", web::get().to(list_tables))
             .service(Files::new("/rules", ".").index_file("Rules.md"))
             .service(Files::new("/", ".").index_file("./html/index.html"))
 	    })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }

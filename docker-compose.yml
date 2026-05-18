@@ -93,8 +93,20 @@ services:
       - "3000:3000"
     depends_on:
       - oauth
+      - game
     environment:
       VITE_AUTH_URL: http://localhost:8081
+    networks:
+      - transcendance
+
+  game:
+    build:
+      context: game
+      dockerfile: Dockerfile
+    container_name: transcendance_game
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
     networks:
       - transcendance
 
@@ -115,6 +127,20 @@ services:
       - transcendance
     profiles:
       - dev
+
+  chat:
+    build:
+      context: chat
+      dockerfile: Dockerfile
+    container_name: transcendance_chat
+    restart: unless-stopped
+    environment:
+      CHAT_HOST: 0.0.0.0
+      CHAT_PORT: 8090
+    ports:
+      - "8090:8090"
+    networks:
+      - transcendance
 
 networks:
   transcendance:

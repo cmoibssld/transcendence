@@ -59,8 +59,12 @@ impl GameManager {
         let id = random_unique_key(self, GameManager::exist);
         self.game.insert(id, player);
         self.info.add_player(id);
+        // deal two cards to the new player
+        self.info.deal_to_player(id, &mut self.deck, 2);
         if self.game.len() == 3 { self.open = false; }
-        return id;
+        // notify players of updated info (cards/points)
+        let _ = self.give_info();
+        id
     }
 
     pub fn remove_player(&mut self, player_id: u32) {
@@ -94,10 +98,13 @@ impl GameManager {
 
     pub fn hit(&mut self, player_id: u32) -> String {
         match self.info.hit(player_id, &mut self.deck) {
-            true =>
+            true => {
+                // push updated game state to all connected players immediately
+                self.give_info();
                 serde_json::json!({
                 "success": "new card",
-            }).to_string(),
+            }).to_string()
+            }
             false => serde_json::json!({
                 "error": "cannot hit"
             }).to_string(),
@@ -119,6 +126,10 @@ impl GameManager {
             Some(players_in_game) => {
                 if players_in_game == 0 {
                     self.info.dealer_final(&mut self.deck);
+                    let final_snapshot = serde_json::json!({
+                        "status": "round_end",
+                        "game": self.info,
+                    }).to_string();
                     self.give_info();
                     let mut i = 0;
                     loop {
@@ -129,6 +140,7 @@ impl GameManager {
                         }
                     }
                     self.restart_table();
+                    return final_snapshot;
                 }
                 else {
                     self.give_info();
@@ -161,22 +173,36 @@ impl GameManager {
 
 impl GameData {
     pub fn new() -> GameData {
+        let mut tables = HashMap::new();
+        tables.insert(1, Mutex::new(GameManager::new(&1)));
         GameData {
-            tables: HashMap::new(),
-            table_id: 1,
+            tables,
+            table_id: 2,
         }
     }
 
     pub fn add_table(&mut self) -> Result<u32, GameError> {
-        if self.tables.len() == 3 { // Replace by env var ?
-            return Err(GameError::TooManyTables);
-        }
-
         self.tables.insert(self.table_id, Mutex::new(GameManager::new(&self.table_id)));
-        // can this function fail ? Look for. If failure no panic, simply TooManyGames error
         self.table_id += 1;
-        return Ok(self.table_id - 1);
+        Ok(self.table_id - 1)
     }
+
+    pub fn list_tables(&self) -> String {
+        let mut arr = Vec::new();
+        for (id, table) in &self.tables {
+            let guard = table.lock().unwrap();
+            let players = guard.game.len();
+            let open = guard.is_open();
+            arr.push(serde_json::json!({
+                "table_id": id,
+                "open": open,
+                "players": players,
+            }));
+        }
+        arr.sort_by_key(|entry| entry.get("table_id").and_then(|v| v.as_u64()).unwrap_or(0));
+        serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+    }
+
 
     pub fn add_player(&mut self, table_id: Option<u32>, player: Addr<GameActor>) -> Result<(u32, u32), GameError> { 
         // if no table id -> add player to random, else add to table_id
@@ -192,10 +218,26 @@ impl GameData {
         if add_to_table.is_err() {
             return Err(GameError::TooManyTables)
         }
-        match self.tables.get(&add_to_table.as_ref().unwrap()) {
-            Some(table) => Ok((table.lock().unwrap().add_player(player), add_to_table.unwrap())),
-            None => Err(GameError::TooManyTables),
+
+        let chosen_table = add_to_table.unwrap();
+        let player_local_id: u32;
+        {
+            let table = self.tables.get(&chosen_table).ok_or(GameError::TooManyTables)?;
+            player_local_id = table.lock().unwrap().add_player(player);
         }
+
+        // If the table just became full, create a new table for subsequent players.
+        let table_still_open: bool;
+        {
+            let table = self.tables.get(&chosen_table).ok_or(GameError::TooManyTables)?;
+            table_still_open = table.lock().unwrap().is_open();
+        }
+        if !table_still_open {
+            // create a new table; ignore error if it occurs
+            let _ = self.add_table();
+        }
+
+        Ok((player_local_id, chosen_table))
     }
 
     pub fn add_to_random(&mut self) -> Result<u32, GameError> {

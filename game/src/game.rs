@@ -9,6 +9,7 @@ use std::sync::Mutex;
 pub struct GameActor {
     id: Option<u32>,
     table_id: Option<u32>,
+    requested_table_id: Option<u32>,
     phase: Phase,
     manager: web::Data<Mutex<GameData>>,
 }
@@ -27,10 +28,11 @@ impl Actor for GameActor {
 }
 
 impl GameActor {
-    pub fn new(data: web::Data<Mutex<GameData>>) -> GameActor {
+    pub fn new(data: web::Data<Mutex<GameData>>, requested_table_id: Option<u32>) -> GameActor {
         GameActor { 
             id: None, 
             table_id: None,
+            requested_table_id,
             phase: Phase::Inlobby,
             manager: data,
         }
@@ -168,27 +170,24 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                         ctx.text(self.hit(self.id));
                         // println!("Checking player points");
                         ctx.text(self.check_player());
-                        self.manager.lock().unwrap().ask_for_info(&self.table_id);
                     }
                     "stay" => { 
                         println!("Player is waiting for result");
                         ctx.text(self.stand());
-                        self.check_player();
-                        self.manager.lock().unwrap().ask_for_info(&self.table_id);
                     }
                     "join" => { println!("Player wants to join a game");
-                        let res = self.join_game(None, ctx);
+                        let res = self.join_game(self.requested_table_id, ctx);
                         match res {
                             Ok(id) => {
                                 self.id = Some(id.0);
                                 self.table_id = Some(id.1);
                                 println!("Player {} joined table {}", self.id.unwrap(), self.table_id.unwrap());
                                 self.phase = Phase::Waiting;
-                                let res = self.manager.lock().unwrap().ask_for_info(&self.table_id);
-                                if res.contains(format!("current_player\":{}", self.id.unwrap()).as_str()) {
-                                    self.phase = Phase::Playing;
-                                }
-                                ctx.text(res.to_string());
+                                ctx.text(serde_json::json!({
+                                    "status": "joined",
+                                    "player_id": self.id.unwrap(),
+                                    "table_id": self.table_id.unwrap(),
+                                }).to_string());
 
                             }
                             Err(_) => {
@@ -208,7 +207,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GameActor {
                             "status": "waiting"
                         });
                         ctx.text(res.to_string());
-                        self.manager.lock().unwrap().ask_for_info(&self.table_id);
                     }
                     &_ => { println!("Action is undefined"); }
                 }

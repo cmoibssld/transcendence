@@ -1,4 +1,9 @@
-const ws = new WebSocket('ws://127.0.0.1:8080/ws/');
+const urlParams = new URLSearchParams(window.location.search);
+const storedTableId = window.localStorage.getItem('blackjack-table-id');
+const tableId = urlParams.get('table_id') || storedTableId || '1';
+window.localStorage.setItem('blackjack-table-id', tableId);
+
+const ws = new WebSocket(`ws://${window.location.host}/ws/?table_id=${encodeURIComponent(tableId)}`);
 const LOBBY_URL = '/';
 
 const statusEl = document.getElementById('status');
@@ -143,7 +148,7 @@ function stay() {
 function join() {
 	pendingJoin = true;
 	pendingLeave = false;
-	ws.send(JSON.stringify({ action: 'join' }));
+    ws.send(JSON.stringify({ action: 'join' }));
     setStatus('Demande de join envoyée...');
 }
 

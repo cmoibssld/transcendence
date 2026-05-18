@@ -1,13 +1,11 @@
 import "../styles/Game.css"
-import Table from "../components/Table"
-import Dealer from "../components/Dealer"
+import GameBoard from "../components/GameBoard"
 
 const Game = () => {
   return (
     <div className="page-shell">
       <section className="game-area page-card">
-          <Dealer />
-          <Table />
+        <GameBoard />
       </section>
     </div>
   )
