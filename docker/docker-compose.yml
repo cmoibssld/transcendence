@@ -5,6 +5,8 @@ services:
     restart: always
     networks:
       - transcendance
+    # ports:
+    #   - "8080:8080"
     secrets:
       - ssl_cert
       - ssl_key

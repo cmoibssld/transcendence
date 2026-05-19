@@ -599,6 +599,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "game-engine"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "actix-files",
+ "actix-web",
+ "actix-web-actors",
+ "getrandom 0.3.4",
+ "rand",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1389,20 +1403,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "transcendence"
-version = "0.1.0"
-dependencies = [
- "actix",
- "actix-files",
- "actix-web",
- "actix-web-actors",
- "getrandom 0.3.4",
- "rand",
- "serde",
- "serde_json",
 ]
 
 [[package]]
