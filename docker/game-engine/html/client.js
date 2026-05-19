@@ -15,6 +15,11 @@ const leaveButton = document.getElementById('leaveButton');
 let pendingJoin = false;
 let pendingLeave = false;
 let clientId = null;
+let outcomeLocked = false;
+let pauseTimeoutId = null;
+let pendingInfoDuringPause = null;
+
+const AUTO_PAUSE_MS = 2500;
 
 function setStatus(message) {
     statusEl.textContent = message;
@@ -113,6 +118,10 @@ ws.onmessage = (event) => {
     }
 
     if (data.table_id !== undefined || data.current_player !== undefined) {
+        if (outcomeLocked) {
+            pendingInfoDuringPause = data;
+            return;
+        }
         renderGameInfo(data);
         if (pendingJoin) {
             pendingJoin = false;
@@ -135,10 +144,16 @@ ws.onerror = () => {
 };
 
 function hit() {
+    if (outcomeLocked) {
+        return;
+    }
     ws.send(JSON.stringify({ action: 'hit' }));
 }
 
 function stay() {
+    if (outcomeLocked) {
+        return;
+    }
     ws.send(JSON.stringify({ action: 'stay' }));
 }
 
@@ -183,7 +198,10 @@ function renderGameInfo(info) {
             renderCards(playerCardsEl, cards, points, targetId);
 
             if (typeof points === 'number') {
-                updateLocalOutcome(points, dealerPoints, dealerCardsCount);
+                const outcome = evaluateOutcome(points, dealerPoints, dealerCardsCount);
+                if (outcome) {
+                    handleRoundEnd(outcome);
+                }
             }
         }
     }
@@ -191,7 +209,7 @@ function renderGameInfo(info) {
 
 function renderCards(container, cards, points, playerId) {
     container.innerHTML = '';
-    const labels = cards.length > 0 ? cards : ['—'];
+    const labels = cards.length > 0 ? cards.map(formatCard) : ['—'];
 
     labels.forEach((cardLabel) => {
         const slot = document.createElement('div');
@@ -212,6 +230,76 @@ function renderCards(container, cards, points, playerId) {
     }
 }
 
+function formatCard(card) {
+    if (card === null || card === undefined) {
+        return '—';
+    }
+    if (typeof card === 'string' || typeof card === 'number') {
+        return String(card);
+    }
+    if (typeof card === 'object') {
+        const rawValue = card.value ?? card.rank ?? card.number ?? card.v;
+        const rawColor = card.color ?? card.suit ?? card.c;
+
+        const valueLabel = formatCardValue(rawValue);
+        const suitLabel = formatCardSuit(rawColor);
+
+        if (valueLabel || suitLabel) {
+            return `${valueLabel}${suitLabel}`.trim();
+        }
+        try {
+            return JSON.stringify(card);
+        } catch {
+            return '[Objet carte]';
+        }
+    }
+    return String(card);
+}
+
+function formatCardValue(value) {
+    if (value === undefined || value === null) {
+        return '';
+    }
+    const numeric = Number(value);
+    if (Number.isNaN(numeric)) {
+        return String(value);
+    }
+    switch (numeric) {
+        case 1:
+            return 'A';
+        case 11:
+            return 'V';
+        case 12:
+            return 'D';
+        case 13:
+            return 'R';
+        default:
+            return String(numeric);
+    }
+}
+
+function formatCardSuit(color) {
+    if (color === undefined || color === null) {
+        return '';
+    }
+    const numeric = Number(color);
+    if (Number.isNaN(numeric)) {
+        return String(color);
+    }
+    switch (numeric) {
+        case 1:
+            return '♥';
+        case 2:
+            return '♠';
+        case 3:
+            return '♦';
+        case 4:
+            return '♣';
+        default:
+            return '';
+    }
+}
+
 function appendLog(message) {
     if (!logListEl) {
         return;
@@ -226,30 +314,52 @@ function appendLog(message) {
     }
 }
 
-function updateLocalOutcome(playerPoints, dealerPoints, dealerCardsCount) {
+function evaluateOutcome(playerPoints, dealerPoints, dealerCardsCount) {
     if (playerPoints > 21) {
-        setStatus('Vous avez dépassé 21: perdu.');
-        return;
+        return 'Vous avez dépassé 21: perdu.';
     }
 
     if (dealerCardsCount <= 1 || typeof dealerPoints !== 'number') {
-        return;
+        return null;
     }
 
     if (dealerPoints > 21) {
-        setStatus('Le croupier a dépassé 21: gagné.');
-        return;
+        return 'Le croupier a dépassé 21: gagné.';
     }
 
     if (playerPoints > dealerPoints) {
-        setStatus('Vous gagnez.');
-        return;
+        return 'Vous gagnez.';
     }
 
     if (playerPoints < dealerPoints) {
-        setStatus('Vous perdez.');
-        return;
+        return 'Vous perdez.';
     }
 
-    setStatus('Égalité.');
+    return 'Égalité.';
+}
+
+function handleRoundEnd(message) {
+    if (outcomeLocked) {
+        return;
+    }
+    outcomeLocked = true;
+    setStatus(message);
+    setControlsPaused(true);
+
+    if (pauseTimeoutId) {
+        clearTimeout(pauseTimeoutId);
+    }
+    pauseTimeoutId = setTimeout(() => {
+        setControlsPaused(false);
+        outcomeLocked = false;
+        if (pendingInfoDuringPause) {
+            renderGameInfo(pendingInfoDuringPause);
+            pendingInfoDuringPause = null;
+        }
+    }, AUTO_PAUSE_MS);
+}
+
+function setControlsPaused(paused) {
+    hitButton.disabled = paused;
+    stayButton.disabled = paused;
 }

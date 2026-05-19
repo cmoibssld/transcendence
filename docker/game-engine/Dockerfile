@@ -8,10 +8,10 @@ FROM debian:bookworm-slim
 
 RUN <<EOF
 apt update
-apt install -y extra-runtime-dependencies
+apt install -y libssl3 ca-certificates
 rm -rf /var/lib/apt/lists/*
 EOF
-COPY --from=builder /usr/src/game-engine/target/release/game-engine usr/local/bin/game-engine
+COPY --from=builder /usr/src/game-engine/target/release/game-engine /usr/local/bin/game-engine
 COPY ./html/ /var/www/html/
 EXPOSE 8080
 CMD ["game-engine"]

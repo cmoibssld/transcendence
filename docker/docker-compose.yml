@@ -8,8 +8,8 @@ services:
     # ports:
     #   - "8080:8080"
     secrets:
-      - ssl_cert
-      - ssl_key
+      - cert.pem
+      - key.pem
 
   reverse-proxy:
     container_name: reverse-proxy
@@ -20,14 +20,14 @@ services:
     networks:
       - transcendance
     secrets:
-      - ssl_cert
-      - ssl_key
+      - cert.pem
+      - key.pem
 
 networks:
   transcendance:
 
 secrets:
-  ssl_cert:
+  cert.pem:
     file: secrets/cert.pem
-  ssl_key:
+  key.pem:
     file: secrets/key.pem

@@ -3,6 +3,7 @@ use actix_web::{get, Responder};
 use actix_files::Files;
 use actix_web_actors::ws;
 use std::sync::Mutex;
+use openssl::ssl::{SslAcceptor, SslMethod};
 
 mod game;
 mod manager;
@@ -24,6 +25,13 @@ async fn main() -> std::io::Result<()> {
     println!("Starting!");
     let game_data = web::Data::new(Mutex::new(manager::GameData::new()));
 
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+
+    builder
+        .set_private_key_file("/run/secrets/key.pem", openssl::ssl::SslFiletype::PEM)
+        .unwrap();
+
+    builder.set_certificate_chain_file("/run/secrets/cert.pem").unwrap();
     HttpServer::new(move || {
         App::new()
             .app_data(game_data.clone())
@@ -31,7 +39,7 @@ async fn main() -> std::io::Result<()> {
             .service(test)
             .service(Files::new("/", ".").index_file("/var/www/html/index.html"))
 	    })
-    .bind(("0.0.0.0", 8080))?
+    .bind_openssl("0.0.0.0:8080", builder)?
     .run()
     .await
 }
