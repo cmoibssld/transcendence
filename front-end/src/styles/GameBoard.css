@@ -7,6 +7,7 @@
 }
 
 .game-board {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -316,6 +317,99 @@
   gap: 12px;
 }
 
+.round-end-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(4, 8, 7, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.round-end-screen__card {
+  width: min(100%, 620px);
+  padding: 28px;
+  border-radius: 28px;
+  border: 1px solid rgba(242, 196, 97, 0.22);
+  background:
+    radial-gradient(circle at top, rgba(242, 196, 97, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(18, 28, 24, 0.98), rgba(8, 12, 11, 0.98));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.round-end-screen--win .round-end-screen__card {
+  border-color: rgba(95, 214, 140, 0.34);
+}
+
+.round-end-screen--lose .round-end-screen__card {
+  border-color: rgba(239, 99, 99, 0.34);
+}
+
+.round-end-screen__eyebrow {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 0.76rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(242, 196, 97, 0.92);
+}
+
+.round-end-screen h3 {
+  margin: 0;
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  color: #f5f2e8;
+}
+
+.round-end-screen p {
+  margin: 14px 0 0;
+  color: rgba(240, 245, 242, 0.86);
+}
+
+.round-end-screen__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.round-end-screen__grid div {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.round-end-screen__grid span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(240, 245, 242, 0.72);
+}
+
+.round-end-screen__grid strong {
+  color: #f5f2e8;
+}
+
+.round-end-screen__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.round-end-screen__actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, #f2c461, #d6a845);
+  color: #111;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .game-actions button {
   border: 0;
   border-radius: 999px;
@@ -371,6 +465,15 @@
 @media (max-width: 1100px) {
   .game-board-layout {
     grid-template-columns: 1fr;
+  }
+
+  .round-end-screen {
+    position: fixed;
+  }
+
+  .round-result-banner {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .game-board__header {

@@ -93,40 +93,33 @@ services:
       - "3000:3000"
     depends_on:
       - oauth
-      - game
+      - reverse-proxy
     environment:
       VITE_AUTH_URL: http://localhost:8081
+      VITE_GAME_URL: http://localhost:8080
+      VITE_CHAT_URL: http://localhost:8080
     networks:
       - transcendance
 
-  game:
+  game-engine:
     build:
-      context: game
+      context: docker/game-engine
       dockerfile: Dockerfile
-    container_name: transcendance_game
+    container_name: transcendance_game_engine
+    restart: unless-stopped
+    networks:
+      - transcendance
+
+  reverse-proxy:
+    build:
+      context: docker/reverse-proxy
+      dockerfile: Dockerfile
+    container_name: transcendance_reverse_proxy
     restart: unless-stopped
     ports:
       - "8080:8080"
     networks:
       - transcendance
-
-  frontend-dev:
-    build:
-      context: front-end
-      dockerfile: Dockerfile.dev
-    container_name: transcendance_frontend_dev
-    restart: unless-stopped
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./front-end:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-    networks:
-      - transcendance
-    profiles:
-      - dev
 
   chat:
     build:

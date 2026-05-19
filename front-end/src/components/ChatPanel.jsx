@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import "../styles/Chat.css"
 
-const chatBaseUrl = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8090"
+const chatBaseUrl = import.meta.env.VITE_CHAT_URL ?? "http://localhost:8080"
 
 const createClientId = () => {
   if (globalThis.crypto?.randomUUID) {
@@ -15,7 +15,7 @@ const createClientId = () => {
 const buildSocketUrl = (roomId) => {
   const url = new URL(chatBaseUrl)
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
-  url.pathname = `/ws/${encodeURIComponent(roomId)}`
+  url.pathname = `/chat/ws/${encodeURIComponent(roomId)}`
   return url.toString()
 }
 

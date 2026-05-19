@@ -2,7 +2,7 @@ import tapis from "../assets/background.png"
 import "../styles/Table.css"
 import { useEffect, useState } from "react"
 
-const GAME_URL = import.meta.env.VITE_GAME_URL || "http://127.0.0.1:8080"
+const GAME_URL = import.meta.env.VITE_GAME_URL || "http://localhost:8080"
 
 const Table = () => {
   const [tables, setTables] = useState([])

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import dealerAvatar from "../assets/dealer.png"
 import "../styles/GameBoard.css"
 
-const GAME_URL = import.meta.env.VITE_GAME_URL || "http://127.0.0.1:8080"
+const GAME_URL = import.meta.env.VITE_GAME_URL || "http://localhost:8080"
 const CARD_IMAGES = import.meta.glob("../assets/cards/*.png", {
   eager: true,
   import: "default",
@@ -90,6 +90,14 @@ function Seat({ playerId, cards, points, current, highlight, seatLabel }) {
   )
 }
 
+function formatPlayerList(playerIds) {
+  if (!playerIds.length) {
+    return "Aucun"
+  }
+
+  return playerIds.map((playerId) => `Joueur ${playerId}`).join(", ")
+}
+
 export default function GameBoard() {
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), [])
   const storedTableId = window.localStorage.getItem("blackjack-table-id")
@@ -100,8 +108,10 @@ export default function GameBoard() {
   const [gameInfo, setGameInfo] = useState(null)
   const [selfPlayerId, setSelfPlayerId] = useState(null)
   const [status, setStatus] = useState("Connexion en attente...")
+  const [roundEnd, setRoundEnd] = useState(null)
   const [joined, setJoined] = useState(false)
   const wsRef = useRef(null)
+  const selfPlayerIdRef = useRef(null)
 
   useEffect(() => {
     window.localStorage.setItem("blackjack-table-id", selectedTableId)
@@ -146,6 +156,8 @@ export default function GameBoard() {
     setJoined(false)
     setGameInfo(null)
     setSelfPlayerId(null)
+    selfPlayerIdRef.current = null
+    setRoundEnd(null)
     setStatus(`Connexion à la table ${selectedTableId}...`)
 
     socket.onopen = () => {
@@ -158,14 +170,42 @@ export default function GameBoard() {
 
         if (data.status === "round_end" && data.game) {
           setGameInfo(data.game)
-          setStatus("Fin de manche: résultat du croupier affiché")
+          const dealerPoints = data.result?.dealer_points ?? data.game.dealer_points
+          const myId = selfPlayerIdRef.current !== null ? Number(selfPlayerIdRef.current) : null
+          const winners = new Set((data.result?.winners ?? []).map((value) => Number(value)))
+          const losers = new Set((data.result?.losers ?? []).map((value) => Number(value)))
+
+          let outcomeText = "Fin de manche"
+          let outcomeClass = "neutral"
+          if (myId !== null) {
+            if (winners.has(myId)) {
+              outcomeText = "Fin de manche: vous avez gagné"
+              outcomeClass = "win"
+            } else if (losers.has(myId)) {
+              outcomeText = "Fin de manche: vous avez perdu"
+              outcomeClass = "lose"
+            } else {
+              outcomeText = "Fin de manche: égalité"
+            }
+          }
+
+          setRoundEnd({
+            dealerPoints,
+            winners: Array.from(winners),
+            losers: Array.from(losers),
+            outcomeText,
+            outcomeClass,
+          })
+          setStatus(`${outcomeText} - croupier: ${dealerPoints} pts`)
           return
         }
 
         if (data.status === "joined") {
           setJoined(true)
           if (data.player_id !== undefined) {
-            setSelfPlayerId(String(data.player_id))
+            const playerId = String(data.player_id)
+            selfPlayerIdRef.current = playerId
+            setSelfPlayerId(playerId)
           }
           setStatus(`Connecté à la table ${data.table_id ?? selectedTableId}`)
           return
@@ -212,7 +252,14 @@ export default function GameBoard() {
   const currentPlayer = gameInfo?.current_player
   const playersCards = gameInfo?.players_cards || {}
   const playersPoints = gameInfo?.players_points || {}
-  const playersInGame = gameInfo?.players_in_game || Object.keys(playersCards)
+  const playersInGame = (gameInfo?.players_in_game?.length ? gameInfo.players_in_game : Object.keys(playersCards)) || []
+
+  const closeRoundEnd = () => {
+    setRoundEnd(null)
+    if (gameInfo?.table_id !== undefined) {
+      setStatus(`Table ${gameInfo.table_id} prête`)
+    }
+  }
 
   const sendAction = (action) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -244,6 +291,33 @@ export default function GameBoard() {
             </select>
           </div>
         </header>
+
+        {roundEnd ? (
+          <section className={`round-end-screen round-end-screen--${roundEnd.outcomeClass}`} aria-live="polite" role="dialog" aria-modal="true">
+            <div className="round-end-screen__card">
+              <span className="round-end-screen__eyebrow">Fin de manche</span>
+              <h3>{roundEnd.outcomeText}</h3>
+              <p>
+                Croupier: <strong>{roundEnd.dealerPoints} pts</strong>
+              </p>
+              <div className="round-end-screen__grid">
+                <div>
+                  <span>Gagnants</span>
+                  <strong>{formatPlayerList(roundEnd.winners)}</strong>
+                </div>
+                <div>
+                  <span>Perdants</span>
+                  <strong>{formatPlayerList(roundEnd.losers)}</strong>
+                </div>
+              </div>
+              <div className="round-end-screen__actions">
+                <button type="button" onClick={closeRoundEnd}>
+                  Revenir à la table
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="table-stage">
           <div className="table-arena">
