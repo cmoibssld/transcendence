@@ -12,6 +12,7 @@ apt install -y extra-runtime-dependencies
 rm -rf /var/lib/apt/lists/*
 EOF
 COPY --from=builder /usr/src/game-engine/target/release/game-engine usr/local/bin/game-engine
+COPY ./html/ /var/www/html/
 EXPOSE 8080
 CMD ["game-engine"]
 
