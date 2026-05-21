@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transcendence Blackjack</title>
+</head>
+<body>
+    <div id="game">
+		<div id="status"></div>
+		<div id="tableId"></div>
+		<div id="currentPlayer"></div>
+        <div id="dealer">Dealer: <span id="dealerCards"></span></div>
+        <div id="player">Your cards: <span id="playerCards"></span></div>
+        <button id="joinButton" onclick="join()">Join Game</button>
+        <button id="hitButton" onclick="hit()" hidden>Hit</button>
+        <button id="stayButton" onclick="stay()" hidden>Stay</button>
+        <button id="leaveButton" onclick="leave()" hidden>Leave Game</button>
+    </div>
+    <script src="html/client.js"></script>
+</body>
+</html>
