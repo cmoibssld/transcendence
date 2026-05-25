@@ -1,7 +1,0 @@
-target
-.git
-.gitignore
-.env
-node_modules
-*.md
-!Rules.md
