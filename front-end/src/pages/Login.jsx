@@ -44,6 +44,7 @@ const Login = () => {
             localStorage.setItem("access_token", data.access_token)
             localStorage.setItem("refresh_token", data.refresh_token)
             localStorage.setItem("username", data.username)
+            localStorage.setItem("avatar_url", data.avatar_url ?? "")
 
             window.location.href = "/"
         } catch (err) {
@@ -59,11 +60,8 @@ const Login = () => {
 
     return (
         <div className="login-page">
-            <div className="login-glow" />
-
             <div className="login-card">
                 <div className="login-heading">
-                    <span className="login-kicker">LUIGI JACK</span>
                     <h2>Connexion</h2>
                     <p className="login-subtitle">Rejoindre le casino.</p>
                 </div>

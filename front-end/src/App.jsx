@@ -30,6 +30,8 @@ function OAuthCallback() {
       localStorage.setItem("access_token", accessToken)
       localStorage.setItem("refresh_token", refreshToken)
       if (username) localStorage.setItem("username", username)
+      const avatarUrl = params.get("avatar_url")
+      if (avatarUrl) localStorage.setItem("avatar_url", avatarUrl)
       // Replace current entry so back-button doesn't re-process the tokens
       navigate("/", { replace: true })
     }
