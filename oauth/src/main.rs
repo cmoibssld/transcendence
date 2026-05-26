@@ -62,6 +62,13 @@ struct IntrospectResponse {
     username: String,
 }
 
+#[derive(Serialize)]
+struct ProfileResponse {
+    username: String,
+    avatar_url: Option<String>,
+    coins: i64,
+}
+
 #[derive(Deserialize)]
 struct GitHubTokenResponse {
     access_token: String,
@@ -514,6 +521,60 @@ async fn introspect(
     }))
 }
 
+// ── Profile endpoint ──────────────────────────────────────────────────────────
+
+async fn get_profile(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+) -> impl Responder {
+    let token = req
+        .headers()
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_owned));
+
+    let token = match token {
+        Some(t) => t,
+        None => return HttpResponse::Unauthorized()
+            .json(serde_json::json!({"error": "missing token"})),
+    };
+
+    let jwt_secret = match env::var("JWT_SECRET") {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
+
+    let claims = match jsonwebtoken::decode::<ClaimsJWT>(
+        &token,
+        &DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &Validation::default(),
+    ) {
+        Ok(d) => d.claims,
+        Err(_) => return HttpResponse::Unauthorized()
+            .json(serde_json::json!({"error": "invalid token"})),
+    };
+
+    let user_id = claims.sub as i32;
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        let mut conn = pool.get().expect("DB pool");
+        u::users
+            .filter(u::id.eq(user_id))
+            .select((u::username, u::avatar, u::money))
+            .first::<(String, String, i64)>(&mut conn)
+    })
+    .await;
+
+    match result {
+        Ok(Ok((username, avatar, coins))) => {
+            let avatar_url = if avatar.is_empty() { None } else { Some(avatar) };
+            HttpResponse::Ok().json(ProfileResponse { username, avatar_url, coins })
+        }
+        _ => HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": "db error"})),
+    }
+}
+
 // ── Balance endpoints ──────────────────────────────────────────────────────────
 
 async fn get_balance(
@@ -644,6 +705,7 @@ async fn main() -> std::io::Result<()> {
             .route("/auth/introspect", web::post().to(introspect))
             .route("/auth/presence/offline", web::post().to(presence_offline))
             .route("/auth/balance", web::get().to(get_balance))
+            .route("/auth/profile", web::get().to(get_profile))
             .route("/auth/internal/coins", web::post().to(update_coins))
     })
     .bind("0.0.0.0:8081")?
