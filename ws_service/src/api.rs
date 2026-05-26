@@ -1,7 +1,9 @@
 use serde::{Serialize, Deserialize};
-use actix_web::{HttpResponse, Responder, web};
+use actix_web::{Error, HttpRequest, HttpResponse, web};
 use std::collections::HashMap;
 use log::info;
+use crate::ws_client::{Gamer};
+use std::sync::Mutex;
 // REST API for this microservice. 
 // Get from HTTPS what to send to which client.
 // Communication with HTTPS -> inside the content info in a JSON format
@@ -11,18 +13,23 @@ use log::info;
 //      content: either game chat update or game update
 // }
 //
-// TODO from HTTP request deserialize. parse. act.
+// But : never two clients at the same time on the HTTP request => dest is never a vec<u32>
+// but always a simple u32. Server is too fast for simultaneously client connection -> 
+// Someone has entered the chatroom : 1 client from 1 request
+// Someone has entered the game : 1 client only. Mutiple changed to client are handle inside
+// the game-engine...
+// Id of the Gamer structr != id of player but ID of table.
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RestApi {
-    destination: Vec<u32>,
+    destination: u32,
     nature: String,
     content: String,
-}
+} // table id could be a good id
 
 impl RestApi {
     pub fn new(
-        destination: Vec<u32>, 
+        destination: u32, 
         nature: String, 
         content: String,
 ) -> Self {
@@ -35,38 +42,40 @@ impl RestApi {
 }
 
 pub async fn send_game_info(
-    dest: &Vec<u32>, 
+    dest: u32, 
     content: &str,
 ) -> HttpResponse {
-    let resp = format!("For game: dest lenght: {}, with content {}", dest.len(), content);
+    let resp = format!("For game: dest is: {}, with content {}", dest, content);
     HttpResponse::Ok().body(resp)
 }
 
 pub async fn send_chat_info(
-    dest: &Vec<u32>, 
+    dest: u32, 
     content: &str
 ) -> HttpResponse {
-    let resp = format!("For chat: dest lenght: {}, with content {}", dest.len(), content);
+    let resp = format!("For chat: dest is: {}, with content {}", dest, content);
     HttpResponse::Ok().body(resp)
 }
 
 pub async fn check_request(
-    req: web::Json<RestApi>, 
-    data: web::Data<HashMap<u32, u32>>
-) -> impl Responder {
-    info!("Request content: {}", &req.content);
-    for i in &req.destination {
-        if data.get(&i).is_none() {
-            println!("Need to create websocket for player {i}")
-        } else {
-            println!("Websocket exist for player {i}");
-        }
-    }
-    if &req.nature == "game" {
-        send_game_info(&req.destination, &req.content).await
-    } else if &req.nature == "chat" {
-        send_chat_info(&req.destination, &req.content).await
+    req: HttpRequest,
+    stream: web::Payload,
+    body: web::Json<RestApi>, 
+    data: web::Data<Mutex<HashMap<u32, Gamer>>>
+) -> Result<HttpResponse, Error> {
+    info!("Request content: {}", &body.content);
+    if data.lock().unwrap().get(&body.destination).is_none() {
+        let new_gamer = Gamer::new(body.destination, &req, stream)?;
+        data.lock().unwrap().insert(body.destination, new_gamer);
+        // start_chat(data.get_mut(&i).expect("If failed, error return above"));
     } else {
-        HttpResponse::BadRequest().body(serde_json::to_string(&req).unwrap())
+        info!("Websocket exist for player {}", body.destination);
+    }
+    if &body.nature == "game" {
+        Ok(send_game_info(body.destination, &body.content).await)
+    } else if &body.nature == "chat" {
+        Ok(send_chat_info(body.destination, &body.content).await)
+    } else {
+        Ok(HttpResponse::BadRequest().body(serde_json::to_string(&body).unwrap()))
     }
 }
