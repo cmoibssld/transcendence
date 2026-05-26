@@ -8,12 +8,20 @@ COPY src ./src
 
 RUN cargo build --release --bin api
 
+# Build diesel CLI
+RUN cargo install diesel_cli --no-default-features --features postgres
+
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates libssl3 libpq5 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libssl3 libpq5 postgresql-client curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=builder /app/target/release/api /usr/local/bin/api
+COPY --from=builder /usr/local/cargo/bin/diesel /usr/local/bin/diesel
 COPY certs ./certs
+COPY migrations ./migrations
+COPY diesel.toml ./diesel.toml
+COPY docker/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 EXPOSE 3443
-CMD ["api"]
+ENTRYPOINT ["./entrypoint.sh"]

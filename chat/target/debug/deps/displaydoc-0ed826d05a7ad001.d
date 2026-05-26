@@ -1,0 +1,8 @@
+/goinfre/aguilleu/transcendence/chat/target/debug/deps/displaydoc-0ed826d05a7ad001.d: /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/lib.rs /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/attr.rs /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/expand.rs /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/fmt.rs
+
+/goinfre/aguilleu/transcendence/chat/target/debug/deps/libdisplaydoc-0ed826d05a7ad001.so: /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/lib.rs /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/attr.rs /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/expand.rs /home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/fmt.rs
+
+/home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/lib.rs:
+/home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/attr.rs:
+/home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/expand.rs:
+/home/aguilleu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.5/src/fmt.rs:

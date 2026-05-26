@@ -1,0 +1,2 @@
+UPDATE users SET money = 1000 WHERE money = 0;
+ALTER TABLE users ALTER COLUMN money SET DEFAULT 1000;

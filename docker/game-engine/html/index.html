@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transcendence Blackjack</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0f172a;
+            --panel: #111827;
+            --accent: #22c55e;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --danger: #ef4444;
+            --border: #1f2937;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Inter", "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top, #1f2937, #0b1020 60%);
+            color: var(--text);
+        }
+
+        #game {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 32px 20px 40px;
+            display: grid;
+            gap: 18px;
+        }
+
+        header {
+            display: grid;
+            gap: 10px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 32px;
+            letter-spacing: 0.02em;
+            color: white;
+        }
+
+        #status {
+            padding: 10px 14px;
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        .info-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            color: var(--muted);
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 12px;
+            min-height: 72px;
+        }
+
+        .card-slot {
+            background: #0b1222;
+            border: 1px dashed #334155;
+            border-radius: 12px;
+            min-height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: var(--muted);
+        }
+
+        .card-slot.filled {
+            border-style: solid;
+            color: white;
+            box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        button {
+            border: none;
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #1f2937;
+            color: var(--text);
+            transition: transform 0.15s ease, background 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            background: #2b3a55;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .primary {
+            background: var(--accent);
+            color: #052e16;
+        }
+
+        .danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        #log {
+            background: #0b1222;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 12px;
+            max-height: 180px;
+            overflow-y: auto;
+            font-size: 13px;
+        }
+
+        #log h3 {
+            margin: 0 0 8px;
+            font-size: 14px;
+            color: var(--muted);
+            letter-spacing: 0.02em;
+        }
+
+        #logList {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        #logList li {
+            padding: 6px 8px;
+            border-radius: 8px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            color: #fecaca;
+        }
+    </style>
+</head>
+<body>
+    <div id="game">
+        <header>
+            <h1>Transcendence Blackjack</h1>
+            <div id="status"></div>
+            <div class="info-row">
+                <div id="tableId"></div>
+                <div id="currentPlayer"></div>
+            </div>
+        </header>
+
+        <section class="panel">
+            <strong>Dealer</strong>
+            <div id="dealerCards" class="cards-grid"></div>
+        </section>
+
+        <section class="panel">
+            <strong>Votre main</strong>
+            <div id="playerCards" class="cards-grid"></div>
+        </section>
+
+        <div class="controls">
+            <button id="joinButton" class="primary" onclick="join()">Join Game</button>
+            <button id="hitButton" onclick="hit()" hidden>Hit</button>
+            <button id="stayButton" onclick="stay()" hidden>Stay</button>
+            <button id="leaveButton" class="danger" onclick="leave()" hidden>Leave Game</button>
+        </div>
+
+        <section id="log">
+            <h3>Log WebSocket</h3>
+            <ul id="logList"></ul>
+        </section>
+    </div>
+    <script src="/var/www/html/client.js"></script>
+</body>
+</html>

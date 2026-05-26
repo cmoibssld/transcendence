@@ -1,0 +1,17 @@
+.dealer {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  background:
+    radial-gradient(circle at 50% 100%, rgba(214, 177, 91, 0.16), transparent 24%),
+    radial-gradient(circle at 50% 20%, rgba(95, 212, 192, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(20, 34, 29, 0.98), rgba(8, 13, 13, 0.96));
+  overflow: hidden;
+}
+
+.dealer img {
+    width: clamp(240px, 26vw, 360px);
+    height: auto;
+    display: block;
+    filter: drop-shadow(0 24px 40px rgba(0, 0, 0, 0.45));
+}                                                                                                                                                                                                                                                                                                             

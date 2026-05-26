@@ -1,0 +1,155 @@
+.home-page {
+  position: relative;
+  min-height: calc(100vh - 104px);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  background: #050908;
+}
+
+.home-bg {
+  position: absolute;
+  inset: -1px;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  z-index: 0;
+  filter: saturate(0.9) brightness(0.72) contrast(1.08);
+  transform: scale(1.03);
+}
+
+.home-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 55%, rgba(4, 36, 22, 0.55), transparent),
+    linear-gradient(180deg, rgba(3, 6, 5, 0.18) 0%, rgba(3, 6, 5, 0.72) 100%);
+}
+
+/* ─── Hero panel ────────────────────────────────────────────────────────── */
+.home-hero {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  padding: 0 24px;
+  max-width: 680px;
+}
+
+.home-eyebrow {
+  display: inline-block;
+  margin-bottom: 20px;
+  font-size: 0.78rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: rgba(242, 196, 97, 0.85);
+  border: 1px solid rgba(242, 196, 97, 0.25);
+  border-radius: 999px;
+  padding: 5px 16px;
+  background: rgba(242, 196, 97, 0.07);
+}
+
+.home-title {
+  margin: 0 0 20px;
+  font-size: clamp(4rem, 10vw, 7.5rem);
+  font-weight: 900;
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  color: #f5f2e8;
+  text-shadow:
+    0 2px 0 rgba(0,0,0,0.5),
+    0 8px 40px rgba(0,0,0,0.55);
+}
+
+.home-title span {
+  display: block;
+  background: linear-gradient(135deg, #f2c461 10%, #e0a830 55%, #f2c461 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.home-subtitle {
+  margin: 0 auto 36px;
+  max-width: 460px;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: rgba(240, 245, 242, 0.72);
+}
+
+.home-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.home-btn-play {
+  font-size: 1rem;
+  padding: 14px 32px;
+}
+
+/* ─── Decorative cards ──────────────────────────────────────────────────── */
+.home-cards-deco {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.deco-card {
+  position: absolute;
+  font-size: 3.5rem;
+  font-weight: 900;
+  line-height: 1;
+  opacity: 0.07;
+  filter: blur(1px);
+  user-select: none;
+}
+
+.deco-card--1 {
+  left: 7%;
+  top: 22%;
+  transform: rotate(-18deg);
+  font-size: clamp(3rem, 6vw, 5rem);
+  color: #f5f2e8;
+  opacity: 0.09;
+}
+
+.deco-card--2 {
+  right: 8%;
+  top: 18%;
+  transform: rotate(14deg);
+  font-size: clamp(3rem, 6vw, 5rem);
+  color: #e86c6c;
+  opacity: 0.11;
+}
+
+.deco-card--3 {
+  right: 14%;
+  bottom: 20%;
+  transform: rotate(-8deg);
+  font-size: clamp(2.5rem, 5vw, 4.2rem);
+  color: #e0903c;
+  opacity: 0.09;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .home-hero {
+    padding: 0 16px;
+  }
+
+  .home-subtitle {
+    font-size: 0.95rem;
+  }
+
+  .deco-card--1,
+  .deco-card--2,
+  .deco-card--3 {
+    display: none;
+  }
+}

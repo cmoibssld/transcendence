@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4"
+actix-cors = "0.7"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
 actix-files = "0.6.8"
@@ -19,3 +20,8 @@ jsonwebtoken = "9.2"
 chrono = "0.4"
 rand = "0.8"
 bcrypt = "0.15"
+diesel = { version = "2.2.4", features = ["postgres", "r2d2", "chrono"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+urlencoding = "2.1"

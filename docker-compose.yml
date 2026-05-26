@@ -1,0 +1,231 @@
+services:
+  db_oauth:
+    image: docker.io/library/postgres:16
+    container_name: transcendance_db_oauth
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: diesel
+      POSTGRES_PASSWORD: dieselpass
+      POSTGRES_DB: transcendance_oauth
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_oauth:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diesel -d transcendance_oauth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - transcendance
+
+  db_history:
+    image: docker.io/library/postgres:16
+    container_name: transcendance_db_history
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: diesel
+      POSTGRES_PASSWORD: dieselpass
+      POSTGRES_DB: transcendance_history
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_history:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diesel -d transcendance_history"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - transcendance
+
+  api:
+    build:
+      context: db
+      dockerfile: docker/api.Dockerfile
+    container_name: transcendance_api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://diesel:dieselpass@db_oauth:5432/transcendance_oauth
+      API_HOST: 0.0.0.0
+      API_PORT: 3443
+      TLS_CERT_FILE: certs/dev-cert.pem
+      TLS_KEY_FILE: certs/dev-key.pem
+    depends_on:
+      db_oauth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:3443/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "3443:3443"
+    networks:
+      - transcendance
+
+  dev:
+    build:
+      context: db
+      dockerfile: docker/dev.Dockerfile
+    container_name: transcendance_dev
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      CARGO_HOME: /usr/local/cargo
+      RUSTUP_HOME: /usr/local/rustup
+      DATABASE_URL: postgres://diesel:dieselpass@db_oauth:5432/transcendance_oauth
+      API_HOST: 0.0.0.0
+      API_PORT: 3443
+    depends_on:
+      db_oauth:
+        condition: service_healthy
+    volumes:
+      - ./db:/app
+    networks:
+      - transcendance
+    profiles:
+      - dev
+    stdin_open: true
+    tty: true
+
+  oauth:
+    build:
+      context: oauth
+      dockerfile: Dockerfile
+    container_name: transcendance_oauth
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://diesel:dieselpass@db_oauth:5432/transcendance_oauth
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev-refresh-secret-change-me}
+      SESSION_KEY: ${SESSION_KEY:-dev-session-key-do-not-use-in-prod-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-http://localhost:8081/auth/github/callback}
+      FRONTEND_REDIRECT_URL: ${FRONTEND_REDIRECT_URL:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      GITHUB_ID: ${GITHUB_ID}
+      GITHUB_SECRET: ${GITHUB_SECRET}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - transcendance
+
+  frontend:
+    build:
+      context: front-end
+      dockerfile: Dockerfile
+      args:
+        VITE_AUTH_URL: https://localhost:8443
+        VITE_GAME_URL: https://localhost:8443/api/game
+        VITE_CHAT_URL: https://localhost:8443/api/chat
+        VITE_WS_URL: wss://localhost:8443/ws
+    container_name: transcendance_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      oauth:
+        condition: service_healthy
+    environment:
+      VITE_AUTH_URL: https://localhost:8443
+      VITE_GAME_URL: https://localhost:8443/api/game
+      VITE_CHAT_URL: https://localhost:8443/api/chat
+      VITE_WS_URL: wss://localhost:8443/ws
+    networks:
+      - transcendance
+
+  game-engine:
+    build:
+      context: docker/game-engine
+      dockerfile: Dockerfile
+    container_name: transcendance_game_engine
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://diesel:dieselpass@db_history:5432/transcendance_history
+      WS_SERVICE_URL: http://ws-service:8082
+      USER_SERVICE_URL: http://oauth:8081
+      RUST_LOG: info
+    depends_on:
+      db_history:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - transcendance
+
+  ws-service:
+    build:
+      context: ws_service
+      dockerfile: Dockerfile
+    container_name: transcendance_ws_service
+    restart: unless-stopped
+    environment:
+      WS_HOST: 0.0.0.0
+      WS_PORT: 8082
+      USER_SERVICE_URL: http://oauth:8081
+      GAME_SERVICE_URL: http://game-engine:8080
+      CHAT_SERVICE_URL: http://chat:8090
+    depends_on:
+      oauth:
+        condition: service_healthy
+      game-engine:
+        condition: service_healthy
+      chat:
+        condition: service_started
+    networks:
+      - transcendance
+
+  reverse-proxy:
+    build:
+      context: docker/reverse-proxy
+      dockerfile: Dockerfile
+    container_name: transcendance_reverse_proxy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8443:443"
+    volumes:
+      - ./docker/reverse-proxy/certs:/etc/nginx/certs:ro
+    depends_on:
+      oauth:
+        condition: service_healthy
+      game-engine:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+      chat:
+        condition: service_started
+      ws-service:
+        condition: service_started
+    networks:
+      - transcendance
+
+  chat:
+    build:
+      context: chat
+      dockerfile: Dockerfile
+    container_name: transcendance_chat
+    restart: unless-stopped
+    environment:
+      CHAT_HOST: 0.0.0.0
+      CHAT_PORT: 8090
+      WS_SERVICE_URL: http://ws-service:8082
+    networks:
+      - transcendance
+
+networks:
+  transcendance:
+    driver: bridge
+
+volumes:
+  pgdata_oauth:
+  pgdata_history:
