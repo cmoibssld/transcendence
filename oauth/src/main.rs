@@ -434,11 +434,12 @@ async fn github_callback(
 
     // Pass tokens as query params so the SPA can store them in localStorage
     let redirect_url = format!(
-        "{}?access_token={}&refresh_token={}&username={}",
+        "{}?access_token={}&refresh_token={}&username={}&avatar_url={}",
         frontend_redirect,
         urlencoding::encode(&response_data.access_token),
         urlencoding::encode(&response_data.refresh_token),
         urlencoding::encode(&user.username),
+        urlencoding::encode(response_data.avatar_url.as_deref().unwrap_or("")),
     );
 
     Ok(HttpResponse::Found()
