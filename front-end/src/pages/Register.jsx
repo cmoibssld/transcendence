@@ -71,11 +71,8 @@ const Register = () => {
 
     return (
         <div className="login-page">
-            <div className="login-glow" />
-
             <div className="login-card">
                 <div className="login-heading">
-                    <span className="login-kicker">LUIGI JACK</span>
                     <h2>Inscription</h2>
                     <p className="login-subtitle">Creer un compte joueur.</p>
                 </div>
