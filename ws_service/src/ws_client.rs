@@ -7,10 +7,10 @@ pub async fn send_game_info(dest:
     Vec<u32>, content: String) -> impl
 Responder {
     let resp = format!("For game: dest lenght: {}, with content {}", dest.len(), content);
-    HttpResponse::Accepted().body(resp)
+    HttpResponse::Ok().body(resp)
 }
 
 pub async fn send_chat_info(dest: Vec<u32>, content: String) -> impl Responder {
     let resp = format!("For chat: dest lenght: {}, with content {}", dest.len(), content);
-    HttpResponse::Accepted().body(resp)
+    HttpResponse::Ok().body(resp)
 }

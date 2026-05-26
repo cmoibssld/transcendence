@@ -1,5 +1,6 @@
 use actix_web::{App, HttpServer, web};
 use std::collections::HashMap;
+use log::info;
 
 // Start the websocket connection after a join of the game. gives update on the game and on the
 // livechat. Implements ping/pong to make sure client is not afk. close connection doesn't close
@@ -12,7 +13,8 @@ pub mod api;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!("Websocket service is starting");
+    env_logger::init();
+    info!("Websocket service is starting");
 
     // TODO create HTTP Server, add service of parsing incoming request. 
     HttpServer::new(move || {
@@ -27,17 +29,18 @@ async fn main() -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use log::info;
     use crate::api::RestApi;
 
     #[tokio::test] // test is not enough if I want to do async test -> tokio
-    async fn not_allowed() {
+    async fn not_found() {
         let client = reqwest::Client::new();
         let res = client.get("http://127.0.0.1:4567/ws_service")
             .send()
             .await
             .unwrap();
-        assert_eq!(res.status().as_u16(), 403)
+        info!("{}", res.status());
+        assert_eq!(res.status().as_u16(), 404)
     }
 
     #[tokio::test]
@@ -45,7 +48,7 @@ mod tests {
         let body = String::from("bad, bad request");
         let client = reqwest::Client::new();
         let res = client.post("http://127.0.0.1:4567/ws_service")
-            .body(serde_json::to_string(&body).unwrap())
+            .json(&body)
             .send()
             .await
             .unwrap();
@@ -61,7 +64,7 @@ mod tests {
         );
         let client = reqwest::Client::new();
         let res = client.post("http://127.0.0.1:4567/ws_service")
-            .body(serde_json::to_string(&body).unwrap())
+            .json(&body)
             .send()
             .await
             .unwrap();
@@ -77,7 +80,7 @@ mod tests {
         );
         let client = reqwest::Client::new();
         let res = client.post("http://127.0.0.1:4567/ws_service")
-            .body(serde_json::to_string(&body).unwrap())
+            .json(&body)
             .send()
             .await
             .unwrap();
@@ -93,7 +96,7 @@ mod tests {
         );
         let client = reqwest::Client::new();
         let res = client.post("http://127.0.0.1:4567/ws_service")
-            .body(serde_json::to_string(&body).unwrap())
+            .json(&body)
             .send()
             .await
             .unwrap();

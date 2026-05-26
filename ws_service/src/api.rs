@@ -1,6 +1,7 @@
 use serde::{Serialize, Deserialize};
 use actix_web::{HttpResponse, Responder, web};
 use std::collections::HashMap;
+use log::info;
 // REST API for this microservice. 
 // Get from HTTPS what to send to which client.
 // Communication with HTTPS -> inside the content info in a JSON format
@@ -53,6 +54,7 @@ pub async fn check_request(
     req: web::Json<RestApi>, 
     data: web::Data<HashMap<u32, u32>>
 ) -> impl Responder {
+    info!("Request content: {}", &req.content);
     for i in &req.destination {
         if data.get(&i).is_none() {
             println!("Need to create websocket for player {i}")
@@ -65,6 +67,6 @@ pub async fn check_request(
     } else if &req.nature == "chat" {
         send_chat_info(&req.destination, &req.content).await
     } else {
-        HttpResponse::BadRequest().finish()
+        HttpResponse::BadRequest().body(serde_json::to_string(&req).unwrap())
     }
 }
