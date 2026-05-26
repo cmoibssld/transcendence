@@ -171,9 +171,18 @@ async fn dispatch_event(
     body: web::Json<api::DispatchRequest>,
 ) -> impl Responder {
     let clients = state.clients.lock().unwrap();
+    info!(
+        "Dispatch: kind={}, user_ids={:?}, connected={}",
+        body.event.kind,
+        body.user_ids,
+        clients.len()
+    );
     for user_id in &body.user_ids {
         if let Some(addr) = clients.get(user_id) {
+            info!("Dispatching {} to user {}", body.event.kind, user_id);
             addr.do_send(ServerEvent(body.event.clone()));
+        } else {
+            info!("User {} not in clients map (have: {:?})", user_id, clients.keys().collect::<Vec<_>>());
         }
     }
 

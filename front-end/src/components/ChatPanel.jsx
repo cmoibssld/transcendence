@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
+import { getFreshToken } from "../auth"
 import "../styles/Chat.css"
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? "wss://localhost/ws"
@@ -31,44 +32,52 @@ const ChatPanel = () => {
   useEffect(() => { roomIdRef.current = roomId }, [roomId])
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    if (!token) { setStatus("Non authentifié"); return }
+    let cancelled = false
+    let socket = null
 
-    const url = new URL(WS_URL)
-    url.searchParams.set("token", token)
+    ;(async () => {
+      const token = await getFreshToken()
+      if (!token) { setStatus("Non authentifié"); return }
+      if (cancelled) return
 
-    const socket = new WebSocket(url.toString())
-    socketRef.current = socket
-    setStatus("Connecting")
-    setMessages([])
+      const url = new URL(WS_URL)
+      url.searchParams.set("token", token)
 
-    socket.addEventListener("open", () => {
-      if (!clientIdRef.current) clientIdRef.current = createClientId()
-      setStatus("Connected")
-      socket.send(JSON.stringify({
-        kind: "chat.join",
-        payload: { room_id: roomIdRef.current, name: nameRef.current },
-      }))
-    })
+      socket = new WebSocket(url.toString())
+      socketRef.current = socket
+      setStatus("Connecting")
+      setMessages([])
 
-    socket.addEventListener("close", () => setStatus("Disconnected"))
-    socket.addEventListener("error", () => setStatus("Connection error"))
+      socket.addEventListener("open", () => {
+        if (!clientIdRef.current) clientIdRef.current = createClientId()
+        setStatus("Connected")
+        socket.send(JSON.stringify({
+          kind: "chat.join",
+          payload: { room_id: roomIdRef.current, name: nameRef.current },
+        }))
+      })
 
-    socket.addEventListener("message", (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        // ws-service wraps as {kind, payload}; chat service sends envelope directly
-        const envelope = data.kind?.startsWith("chat.") ? data : (data.payload ?? data)
-        setMessages((prev) => [...prev, envelope])
-      } catch {
-        setMessages((prev) => [...prev, {
-          kind: "chat.system", user: "system", message: event.data,
-          room_id: roomIdRef.current, timestamp: Date.now() / 1000,
-        }])
-      }
-    })
+      socket.addEventListener("close", () => setStatus("Disconnected"))
+      socket.addEventListener("error", () => setStatus("Connection error"))
 
-    return () => { socket.close() }
+      socket.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          const envelope = data.kind?.startsWith("chat.") ? data : (data.payload ?? data)
+          setMessages((prev) => [...prev, envelope])
+        } catch {
+          setMessages((prev) => [...prev, {
+            kind: "chat.system", user: "system", message: event.data,
+            room_id: roomIdRef.current, timestamp: Date.now() / 1000,
+          }])
+        }
+      })
+    })()
+
+    return () => {
+      cancelled = true
+      if (socket) socket.close()
+    }
   }, [roomId])
 
   // Notify server when page is hidden

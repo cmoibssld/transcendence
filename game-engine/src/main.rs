@@ -18,6 +18,11 @@ type DbPool = Pool<ConnectionManager<PgConnection>>;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
+struct ServiceConfig {
+    ws_service_url:  String,
+    user_service_url: String,
+}
+
 #[derive(Deserialize)]
 struct ForwardEvent {
     user_id: u64,
@@ -37,25 +42,58 @@ async fn list_tables(data: web::Data<Mutex<GameData>>) -> HttpResponse {
 }
 
 async fn ws_ingest(
-    data:      web::Data<Mutex<GameData>>,
-    pool:      web::Data<DbPool>,
-    client:    web::Data<reqwest::Client>,
-    ws_url:    web::Data<String>,
-    user_url:  web::Data<String>,
-    body:      web::Json<ForwardEvent>,
+    data:   web::Data<Mutex<GameData>>,
+    pool:   web::Data<DbPool>,
+    client: web::Data<reqwest::Client>,
+    cfg:    web::Data<ServiceConfig>,
+    body:   web::Json<ForwardEvent>,
 ) -> impl Responder {
+    log::info!("Ingest: user_id={} kind={}", body.user_id, body.kind);
+
+    // For game.bet: deduct coins from DB atomically before recording the bet.
+    // If the user lacks funds, reject immediately. If game-engine later rejects
+    // the bet (e.g. wrong phase), refund automatically.
+    let bet_amount: Option<u64> = if body.kind == "game.bet" {
+        body.payload.get("amount").and_then(|v| v.as_u64()).filter(|&a| a > 0)
+    } else {
+        None
+    };
+
+    if let Some(amount) = bet_amount {
+        if !deduct_coins(&client, &cfg.user_service_url, body.user_id, amount).await {
+            dispatch(&client, &cfg.ws_service_url, vec![body.user_id], serde_json::json!({
+                "kind": "game.error",
+                "payload": { "message": "Solde insuffisant" }
+            })).await;
+            return HttpResponse::Accepted().finish();
+        }
+    }
+
     let result: IngestResult = {
         let mut game = data.lock().unwrap();
         game.handle_ingest(body.user_id, &body.kind, &body.payload)
     };
 
+    // Refund if coins were deducted but game-engine rejected the bet
+    if let Some(amount) = bet_amount {
+        let rejected = result.personal.as_ref()
+            .and_then(|v| v.get("kind"))
+            .and_then(|v| v.as_str())
+            .map(|k| k == "game.error")
+            .unwrap_or(false);
+        if rejected {
+            refund_coins(&client, &cfg.user_service_url, body.user_id, amount).await;
+        }
+    }
+
     if let Some(event) = result.personal {
-        dispatch(&client, &ws_url, vec![body.user_id], event).await;
+        log::info!("Dispatching personal {} to user {}", event.get("kind").and_then(|v| v.as_str()).unwrap_or("?"), body.user_id);
+        dispatch(&client, &cfg.ws_service_url, vec![body.user_id], event).await;
     }
 
     if let Some(event) = result.broadcast {
         if !result.audience.is_empty() {
-            dispatch(&client, &ws_url, result.audience.clone(), event).await;
+            dispatch(&client, &cfg.ws_service_url, result.audience.clone(), event).await;
         }
     }
 
@@ -63,21 +101,21 @@ async fn ws_ingest(
     if let Some(post) = result.post_broadcast {
         if !result.audience.is_empty() {
             let c2  = client.clone();
-            let wu2 = ws_url.clone();
+            let ws  = cfg.ws_service_url.clone();
             let aud = result.audience.clone();
             actix_web::rt::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
-                dispatch(&c2, &wu2, aud, post).await;
+                dispatch(&c2, &ws, aud, post).await;
             });
         }
     }
 
-    // Update coin balances for all players after a round
+    // Update coin balances for winners after a round
     for (uid, delta) in result.coin_updates {
         let c2  = client.clone();
-        let uu2 = user_url.clone();
+        let uu  = cfg.user_service_url.clone();
         actix_web::rt::spawn(async move {
-            let _ = c2.post(format!("{}/auth/internal/coins", uu2.get_ref()))
+            let _ = c2.post(format!("{}/auth/internal/coins", uu))
                 .json(&serde_json::json!({ "user_id": uid as i32, "delta": delta }))
                 .send()
                 .await;
@@ -92,20 +130,46 @@ async fn ws_ingest(
     HttpResponse::Accepted().finish()
 }
 
-async fn dispatch(
-    client: &reqwest::Client,
-    ws_url: &str,
-    user_ids: Vec<u64>,
-    event: serde_json::Value,
-) {
+async fn deduct_coins(client: &reqwest::Client, user_url: &str, user_id: u64, amount: u64) -> bool {
+    match client
+        .post(format!("{}/auth/internal/coins", user_url))
+        .json(&serde_json::json!({ "user_id": user_id as i32, "delta": -(amount as i64) }))
+        .send()
+        .await
+    {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
+async fn refund_coins(client: &reqwest::Client, user_url: &str, user_id: u64, amount: u64) {
     let _ = client
-        .post(format!("{}/dispatch", ws_url))
+        .post(format!("{}/auth/internal/coins", user_url))
+        .json(&serde_json::json!({ "user_id": user_id as i32, "delta": amount as i64 }))
+        .send()
+        .await;
+}
+
+async fn dispatch(
+    client:   &reqwest::Client,
+    ws_url:   &str,
+    user_ids: Vec<u64>,
+    event:    serde_json::Value,
+) {
+    let url = format!("{}/dispatch", ws_url);
+    log::info!("Dispatch POST to {}", url);
+    match client
+        .post(&url)
         .json(&serde_json::json!({
             "user_ids": user_ids,
             "event": event,
         }))
         .send()
-        .await;
+        .await
+    {
+        Ok(resp) => log::info!("Dispatch response: {}", resp.status()),
+        Err(e)   => log::error!("Dispatch failed: {}", e),
+    }
 }
 
 fn save_round(pool: &DbPool, h: &HistoryData) -> Result<(), diesel::result::Error> {
@@ -137,7 +201,6 @@ async fn main() -> std::io::Result<()> {
         .build(manager)
         .expect("Failed to create DB pool");
 
-    // Run embedded migrations at startup
     {
         let mut conn = pool.get().expect("Migration: DB connection failed");
         conn.run_pending_migrations(MIGRATIONS)
@@ -145,10 +208,12 @@ async fn main() -> std::io::Result<()> {
         log::info!("DB migrations applied");
     }
 
-    let ws_service_url   = std::env::var("WS_SERVICE_URL")
-        .unwrap_or_else(|_| "http://ws-service:8082".to_string());
-    let user_service_url = std::env::var("USER_SERVICE_URL")
-        .unwrap_or_else(|_| "http://oauth:8081".to_string());
+    let cfg = web::Data::new(ServiceConfig {
+        ws_service_url:  std::env::var("WS_SERVICE_URL")
+            .unwrap_or_else(|_| "http://ws-service:8082".to_string()),
+        user_service_url: std::env::var("USER_SERVICE_URL")
+            .unwrap_or_else(|_| "http://oauth:8081".to_string()),
+    });
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
@@ -157,8 +222,6 @@ async fn main() -> std::io::Result<()> {
 
     let game_data = web::Data::new(Mutex::new(GameData::new()));
     let db_pool   = web::Data::new(pool);
-    let ws_url    = web::Data::new(ws_service_url);
-    let user_url  = web::Data::new(user_service_url);
     let client    = web::Data::new(http_client);
 
     log::info!("Game engine starting on :8080");
@@ -167,7 +230,6 @@ async fn main() -> std::io::Result<()> {
         let frontend_origin =
             std::env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
-        // CORS only affects browser requests; ws-service (internal) sends no Origin header
         let cors = Cors::default()
             .allowed_origin(&frontend_origin)
             .allowed_methods(vec!["GET", "POST", "OPTIONS"])
@@ -180,8 +242,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .app_data(game_data.clone())
             .app_data(db_pool.clone())
-            .app_data(ws_url.clone())
-            .app_data(user_url.clone())
+            .app_data(cfg.clone())
             .app_data(client.clone())
             .route("/health", web::get().to(health))
             .route("/tables", web::get().to(list_tables))

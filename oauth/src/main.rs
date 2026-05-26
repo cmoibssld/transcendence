@@ -634,18 +634,22 @@ async fn update_coins(
     let user_id = body.user_id;
     let delta    = body.delta;
 
-    let result = web::block(move || {
+    let result = web::block(move || -> Result<bool, diesel::result::Error> {
         use crate::schema::users::dsl as u;
         let mut conn = pool.get().expect("DB pool");
         let current: i64 = u::users.filter(u::id.eq(user_id)).select(u::money).first(&mut conn)?;
-        let new_val = (current + delta).max(0);
+        if current + delta < 0 {
+            return Ok(false);
+        }
         diesel::update(u::users.filter(u::id.eq(user_id)))
-            .set(u::money.eq(new_val))
-            .execute(&mut conn)
+            .set(u::money.eq(current + delta))
+            .execute(&mut conn)?;
+        Ok(true)
     }).await;
 
     match result {
-        Ok(Ok(_)) => HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })),
+        Ok(Ok(true))  => HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })),
+        Ok(Ok(false)) => HttpResponse::BadRequest().json(serde_json::json!({ "error": "insufficient funds" })),
         _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
     }
 }

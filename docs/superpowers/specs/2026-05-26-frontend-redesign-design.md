@@ -1,7 +1,7 @@
 # Frontend Redesign — Moderne Sombre Élégant
 
 **Date:** 2026-05-26  
-**Scope:** Design system, Header (auth-aware), GameBoard, Home, Login, Register, Profile  
+**Scope:** Design system, Header (auth-aware), GameBoard, Home, Login, Register, Profile + nouvel endpoint `GET /auth/profile` (Rust)  
 **Out of scope:** Settings, Statistics, History, Rules (traités plus tard)  
 **Approach:** Option A — token swap + patches ciblés dans l'ordre
 
@@ -150,41 +150,71 @@ Supprimée entièrement.
 
 ---
 
-## 6. Profile
+## 6. Nouvel endpoint — `GET /auth/profile` (Rust / oauth)
+
+### Fichier : `oauth/src/main.rs`
+
+Consolide username, avatar_url et coins en un seul appel authentifié.
+
+### Réponse
+```json
+{ "username": "aloun", "avatar_url": "https://...", "coins": 1200 }
+```
+`avatar_url` est `null` pour les comptes locaux.
+
+### Implémentation
+1. Extraire le Bearer token de `Authorization` header
+2. Décoder le JWT → récupérer `sub` (user_id) — réutiliser la logique déjà présente dans `introspect`
+3. SELECT `username`, `avatar_url` depuis la table `users` WHERE `id = user_id`
+4. Appeler la logique de balance existante (déjà dans `get_balance`) pour récupérer les coins
+5. Retourner le JSON
+
+### Route à ajouter
+```
+GET /auth/profile
+```
+
+---
+
+## 7. Profile (frontend)
 
 ### Fichier : `src/pages/Profile.jsx` + `src/styles/Profile.css`
 
-### Sources de données
-Il n'existe pas d'endpoint `GET /auth/profile`. Les données viennent de :
-- `localStorage.getItem('username')` — username
-- `localStorage.getItem('avatar_url')` — avatar (présent uniquement pour les comptes GitHub OAuth, `null` pour les comptes locaux)
-- `GET /auth/balance` avec `Authorization: Bearer <access_token>` — coins
+### Source de données
+Un seul appel au mount :
+```js
+GET /auth/profile
+Authorization: Bearer <access_token>
+```
+Retourne `{ username, avatar_url, coins }`.
 
 ### Avatar
-- Si `avatar_url` dans localStorage (compte GitHub) : `<img>` circulaire
+- Si `avatar_url` non null (compte GitHub) : `<img>` circulaire
 - Sinon (compte local) : cercle CSS avec initiale du username, couleur `--accent`
-- Supprimer le sélecteur de 4 photos hardcodées — aucun endpoint pour persister un changement d'avatar. Supprimer les assets `Aloun.jpg`, `Alexis.jpg`, `Adrien.jpg`, `JB.jpg` du dossier profile.
+- Supprimer le sélecteur de 4 photos hardcodées et les assets `Aloun.jpg`, `Alexis.jpg`, `Adrien.jpg`, `JB.jpg`
 
 ### Données affichées
 - Supprimer toutes les valeurs mockées (John Doe, Paris, $25,400, playerId "BJX-4207")
-- Afficher : username, coins (depuis `/auth/balance`), type de compte (local ou GitHub)
+- Afficher : username, coins, type de compte (local ou GitHub selon `avatar_url`)
 - Page en lecture seule — pas d'édition (aucun endpoint de mise à jour disponible)
 
 ### Login.jsx — fix requis
-Ajouter le stockage de `avatar_url` à la réponse du login :
+Ajouter le stockage de `avatar_url` à la réponse du login local :
 ```js
 localStorage.setItem('avatar_url', data.avatar_url ?? '')
 ```
-(Pour les comptes locaux, sera une chaîne vide. Pour GitHub via OAuthCallback, c'est déjà dans l'URL de redirect — vérifier si `avatar_url` est passé dans les params.)
+OAuthCallback : vérifier que `avatar_url` est bien passé dans les query params du redirect GitHub et le stocker également.
 
 ---
 
 ## Ordre d'implémentation
 
-1. `App.css` — tokens, body, boutons
-2. `Header.jsx` + `Header.css` — auth-aware
-3. `GameBoard.jsx` + `GameBoard.css` — dealer, arena, boutons
-4. Suppression des composants legacy (Dealer, Table)
-5. `Home.css` — overlay, titre
-6. `Login.css` + `Register.jsx` — card, inputs
-7. `Profile.jsx` + `Profile.css` — connexion API, suppression mocks
+1. `oauth/src/main.rs` — `GET /auth/profile` endpoint
+2. `App.css` — tokens, body, boutons
+3. `Header.jsx` + `Header.css` — auth-aware
+4. `GameBoard.jsx` + `GameBoard.css` — dealer, arena, boutons
+5. Suppression des composants legacy (Dealer, Table)
+6. `Home.css` — overlay, titre
+7. `Login.jsx` + `Login.css` — fix avatar_url, card, inputs
+8. `Register.jsx` — card, inputs
+9. `Profile.jsx` + `Profile.css` — appel `/auth/profile`, suppression mocks

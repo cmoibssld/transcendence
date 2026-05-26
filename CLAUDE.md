@@ -33,9 +33,9 @@ npm run lint
 ### Rust services (per-crate)
 
 ```bash
-cargo build                  # from workspace root or individual crate dir
-cargo test                   # run tests
-cargo clippy                 # lint
+cargo build                  # from individual crate dir
+cargo test
+cargo clippy
 ```
 
 ### Database migrations (Diesel)
@@ -77,6 +77,21 @@ Browser ──► nginx (reverse-proxy :8080/:443)
               └── /api/chat/  ──► chat (:8090)
 ```
 
+### Project structure
+
+```
+transcendance/
+├── chat/           — Chat service (Rust/actix-web)
+├── db/             — Migration runner + shared schema (Diesel)
+├── front-end/      — React 19 SPA (Vite)
+├── game-engine/    — Game engine (Rust/actix-web)
+├── oauth/          — Authentication service (Rust/actix-web)
+├── reverse-proxy/  — nginx config + TLS certs
+├── ws_service/     — WebSocket gateway (Rust/actix-web)
+├── docker-compose.yml
+└── docker-compose.dev.yml
+```
+
 ### Services
 
 **`oauth/`** — Authentication service (port 8081)
@@ -86,10 +101,11 @@ Browser ──► nginx (reverse-proxy :8080/:443)
 - `POST /auth/introspect` validates a JWT and returns `{user_id, username}` — used by other services to authenticate requests
 - Stores users and refresh tokens in `transcendance_oauth` DB via Diesel ORM
 
-**`docker/game-engine/`** — Game engine (port 8080)  
-The **active** game backend. The top-level `game/` folder is a legacy reference copy — do not edit it.
+**`game-engine/`** — Game engine (port 8080)
 - Manages Blackjack game tables via `manager::GameData`
-- `blackjack.rs` contains game logic; `game.rs` contains shared types
+- `blackjack.rs` contains game logic; `manager.rs` contains table/session management
+- Persists round history to `transcendance_history` DB via Diesel ORM
+- Dispatches game events to players via `ws-service`
 
 **`chat/`** — Chat service (port 8090)
 - WebSocket rooms via actix actors (`ChatSession`, `ChatHub`)
@@ -97,7 +113,7 @@ The **active** game backend. The top-level `game/` folder is a legacy reference 
 - Keeps last 50 messages in-memory per room; sends history on join
 - `POST /rooms/{room_id}/messages` — HTTP endpoint to post a message programmatically
 
-**`ws-service/`** — Authenticated WebSocket gateway (port 8082)
+**`ws_service/`** — Authenticated WebSocket gateway (port 8082)
 - `GET /ws?token=<jwt>` — authenticates via oauth's introspect endpoint, then opens a user-keyed WebSocket session
 - Routes messages to game-engine or chat by inspecting `kind` prefix (`game.*`, `chat.*`)
 - `POST /dispatch` — internal endpoint to push an `OutboundEvent` to specific user IDs
@@ -111,13 +127,13 @@ The **active** game backend. The top-level `game/` folder is a legacy reference 
 - Two PostgreSQL databases: `transcendance_oauth` (users, refresh_tokens) and `transcendance_history` (game history)
 - Migrations managed with Diesel CLI; schema in `db/migrations/`
 
-**`docker/reverse-proxy/`** — nginx
-- HTTP→HTTPS redirect on port 8080; TLS on 443 with self-signed certs from `docker/reverse-proxy/certs/`
+**`reverse-proxy/`** — nginx
+- HTTP→HTTPS redirect on port 8080; TLS on 443 with self-signed certs in `reverse-proxy/certs/`
 - Handles WebSocket upgrade headers for `/ws` and `/api/chat/`
 
-### Rust workspace
+### Rust crates
 
-The root `Cargo.toml` is a workspace. Each service (`oauth`, `chat`, `game`, `ws_service`, `docker/game-engine`, `db`) is its own crate with its own `Cargo.lock`.
+Each service is its own independent Rust crate with its own `Cargo.lock` (no shared workspace). Crates: `oauth`, `chat`, `game-engine`, `ws_service`, `db`.
 
 ### Auth flow
 

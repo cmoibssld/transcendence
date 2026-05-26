@@ -142,7 +142,7 @@ services:
 
   game-engine:
     build:
-      context: docker/game-engine
+      context: game-engine
       dockerfile: Dockerfile
     container_name: transcendance_game_engine
     restart: unless-stopped
@@ -174,6 +174,7 @@ services:
       USER_SERVICE_URL: http://oauth:8081
       GAME_SERVICE_URL: http://game-engine:8080
       CHAT_SERVICE_URL: http://chat:8090
+      RUST_LOG: info
     depends_on:
       oauth:
         condition: service_healthy
@@ -186,7 +187,7 @@ services:
 
   reverse-proxy:
     build:
-      context: docker/reverse-proxy
+      context: reverse-proxy
       dockerfile: Dockerfile
     container_name: transcendance_reverse_proxy
     restart: unless-stopped
@@ -194,7 +195,7 @@ services:
       - "8080:8080"
       - "8443:443"
     volumes:
-      - ./docker/reverse-proxy/certs:/etc/nginx/certs:ro
+      - ./reverse-proxy/certs:/etc/nginx/certs:ro
     depends_on:
       oauth:
         condition: service_healthy

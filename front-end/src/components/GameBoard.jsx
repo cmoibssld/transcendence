@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
+import { apiFetch, getFreshToken } from "../auth"
 
 import "../styles/GameBoard.css"
 
@@ -101,18 +102,33 @@ function Hand({ cards = [], hiddenIndex, flippingIndex, points, label, isActive 
 
 // ─── Outcome overlay ──────────────────────────────────────────────────────────
 const OUTCOME_CONFIG = {
-  win:     { title: "Victoire",  cls: "outcome--win"  },
-  lose:    { title: "Défaite",   cls: "outcome--lose" },
-  neutral: { title: "Égalité",   cls: "outcome--tie"  },
+  bj:      { title: "Blackjack !",  cls: "outcome--bj"   },
+  win:     { title: "Victoire",     cls: "outcome--win"  },
+  lose:    { title: "Défaite",      cls: "outcome--lose" },
+  neutral: { title: "Égalité",      cls: "outcome--tie"  },
 }
 
 function OutcomeScreen({ roundEnd, myPoints, onClose }) {
-  const cfg = OUTCOME_CONFIG[roundEnd.outcomeClass] ?? OUTCOME_CONFIG.neutral
-  const coinDelta = roundEnd.coinDelta
+  const key = roundEnd.isBlackjack ? "bj" : roundEnd.isPush ? "neutral" : roundEnd.outcomeClass
+  const cfg = OUTCOME_CONFIG[key] ?? OUTCOME_CONFIG.neutral
+  const { coinDelta, dealerPoints, dealerBlackjack, allWinners } = roundEnd
+
   return (
     <div className={`outcome-overlay ${cfg.cls}`} role="dialog" aria-modal="true">
       <div className="outcome-card">
         <h2 className="outcome-title">{cfg.title}</h2>
+
+        {roundEnd.isPush && (
+          <p className="outcome-push-label">Mise remboursée</p>
+        )}
+
+        {dealerBlackjack && !roundEnd.isPush && (
+          <p className="outcome-push-label">Croupier Blackjack</p>
+        )}
+
+        {roundEnd.isBlackjack && (
+          <p className="outcome-bj-badge">🃏 3 pour 2</p>
+        )}
 
         {coinDelta !== 0 && (
           <div className={`outcome-coins ${coinDelta > 0 ? "outcome-coins--win" : "outcome-coins--lose"}`}>
@@ -128,12 +144,12 @@ function OutcomeScreen({ roundEnd, myPoints, onClose }) {
           <div className="outcome-scores__sep">VS</div>
           <div className="outcome-scores__item">
             <span>Croupier</span>
-            <strong>{roundEnd.dealerPoints} pts</strong>
+            <strong>{dealerPoints} pts</strong>
           </div>
         </div>
 
-        {roundEnd.winners.length > 1 && (
-          <p className="outcome-detail">Gagnants : Joueur {roundEnd.winners.join(", Joueur ")}</p>
+        {allWinners.length > 1 && (
+          <p className="outcome-detail">Gagnants : Joueur {allWinners.join(", Joueur ")}</p>
         )}
 
         <button className="outcome-btn" type="button" onClick={onClose}>
@@ -146,9 +162,24 @@ function OutcomeScreen({ roundEnd, myPoints, onClose }) {
 
 // ─── Betting panel ────────────────────────────────────────────────────────────
 const BET_PRESETS = [10, 25, 50, 100, 250]
+const BET_TIMER_MAX = 30
 
-function BettingPanel({ coins, selfPendingBet, onBet }) {
-  const [amount, setAmount] = useState(10)
+function TimerRing({ seconds, max, urgent = 10 }) {
+  const pct  = Math.max(0, seconds / max) * 100
+  const low  = seconds <= urgent
+  return (
+    <div
+      className={`timer-ring${low ? " timer-ring--urgent" : ""}`}
+      style={{ "--pct": pct }}
+      aria-label={`${seconds}s`}
+    >
+      <span className="timer-ring__count">{seconds}</span>
+    </div>
+  )
+}
+
+function BettingPanel({ coins, selfPendingBet, onBet, timer }) {
+  const [amount, setAmount] = useState(Math.min(10, coins))
 
   const clamp = (v) => Math.min(Math.max(v, 1), coins)
 
@@ -162,9 +193,16 @@ function BettingPanel({ coins, selfPendingBet, onBet }) {
 
   return (
     <div className="bet-panel">
-      <div className="bet-panel__balance">
-        <span className="bet-panel__balance-label">Balance</span>
-        <strong className="bet-panel__balance-value">{coins} <span>coins</span></strong>
+      <div className="bet-panel__header">
+        <div className="bet-panel__balance">
+          <span className="bet-panel__balance-label">Solde</span>
+          <strong className="bet-panel__balance-value">
+            {coins.toLocaleString()} <em>coins</em>
+          </strong>
+        </div>
+        {timer !== null && (
+          <TimerRing seconds={timer} max={BET_TIMER_MAX} />
+        )}
       </div>
 
       <div className="bet-panel__presets">
@@ -172,24 +210,29 @@ function BettingPanel({ coins, selfPendingBet, onBet }) {
           <button
             key={p}
             type="button"
-            className={`bet-preset${amount === p ? " bet-preset--active" : ""}`}
+            className={`bet-chip${amount === p ? " bet-chip--active" : ""}`}
             onClick={() => setAmount(p)}
-          >{p}</button>
+          >
+            <span className="bet-chip__value">{p}</span>
+          </button>
         ))}
       </div>
 
       <div className="bet-panel__row">
-        <input
-          type="number"
-          className="bet-input"
-          min={1}
-          max={coins}
-          value={amount}
-          onChange={e => setAmount(clamp(Number(e.target.value)))}
-        />
+        <div className="bet-input-wrap">
+          <input
+            type="number"
+            className="bet-input"
+            min={1}
+            max={coins}
+            value={amount}
+            onChange={e => setAmount(clamp(Number(e.target.value)))}
+          />
+          <span className="bet-input-unit">coins</span>
+        </div>
         <button
           type="button"
-          className="gb-btn gb-btn--hit bet-panel__submit"
+          className="bet-submit"
           disabled={amount < 1 || amount > coins}
           onClick={() => onBet(amount)}
         >
@@ -208,8 +251,10 @@ export default function GameBoard() {
   const [selfId,    setSelfId]    = useState(null)
   const [status,    setStatus]    = useState("Connexion en attente…")
   const [joined,    setJoined]    = useState(false)
-  const [roundEnd,  setRoundEnd]  = useState(null)
-  const [coins,     setCoins]     = useState(null)
+  const [roundEnd,     setRoundEnd]     = useState(null)
+  const [coins,        setCoins]        = useState(null)
+  const [bettingTimer, setBettingTimer] = useState(null)
+  const [turnTimer,    setTurnTimer]    = useState(null)
   // Reveal state: null = idle, { cards, flipping } = animating
   const [revealSeq, setRevealSeq] = useState(null)
 
@@ -224,11 +269,7 @@ export default function GameBoard() {
 
   // ── fetch coin balance ──────────────────────────────────────────────────────
   const fetchCoins = useCallback(() => {
-    const token = localStorage.getItem("access_token")
-    if (!token) return
-    fetch(`${AUTH_URL}/auth/balance`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    apiFetch(`${AUTH_URL}/auth/balance`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.coins !== undefined) setCoins(d.coins) })
       .catch(() => {})
@@ -246,15 +287,20 @@ export default function GameBoard() {
 
   // ── WebSocket ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    if (!token) { setStatus("Non authentifié — connectez-vous d'abord."); return }
+    let cancelled = false
+    let socket = null
 
-    fetchCoins()
+    ;(async () => {
+      const token = await getFreshToken()
+      if (!token) { setStatus("Non authentifié — connectez-vous d'abord."); return }
+      if (cancelled) return
 
-    const url = new URL(WS_URL)
-    url.searchParams.set("token", token)
-    const socket = new WebSocket(url.toString())
-    wsRef.current = socket
+      fetchCoins()
+
+      const url = new URL(WS_URL)
+      url.searchParams.set("token", token)
+      socket = new WebSocket(url.toString())
+      wsRef.current = socket
 
     setJoined(false); setGameInfo(null); setSelfId(null)
     selfIdRef.current = null; setRoundEnd(null); setRevealSeq(null)
@@ -301,25 +347,35 @@ export default function GameBoard() {
         const result    = payload.result
         const dealerPts = result.dealer_points
         const myId      = selfIdRef.current !== null ? Number(selfIdRef.current) : null
-        const winnersSet = new Set((result.winners ?? []).map(Number))
-        const losersSet  = new Set((result.losers  ?? []).map(Number))
+
+        const bjWinnersSet = new Set((result.bj_winners ?? []).map(Number))
+        const winnersSet   = new Set((result.winners    ?? []).map(Number))
+        const pushesSet    = new Set((result.pushes     ?? []).map(Number))
+        const losersSet    = new Set((result.losers     ?? []).map(Number))
 
         let outcomeClass = "neutral"
+        let isBlackjack  = false
+        let isPush       = false
         if (myId !== null) {
-          if (winnersSet.has(myId))     outcomeClass = "win"
-          else if (losersSet.has(myId)) outcomeClass = "lose"
+          if (bjWinnersSet.has(myId))   { outcomeClass = "win"; isBlackjack = true }
+          else if (winnersSet.has(myId)) { outcomeClass = "win" }
+          else if (pushesSet.has(myId))  { outcomeClass = "neutral"; isPush = true }
+          else if (losersSet.has(myId))  { outcomeClass = "lose" }
         }
 
         const myPoints = myId !== null
           ? (state?.players_points?.[myId] ?? state?.players_points?.[String(myId)])
           : null
 
-        // Coin delta for this player
         const myPid = selfIdRef.current ? Number(selfIdRef.current) : null
         const myBet = myPid !== null ? (state?.bets?.[myPid] ?? state?.bets?.[String(myPid)] ?? 0) : 0
-        const coinDelta = outcomeClass === "win" ? Number(myBet) : outcomeClass === "lose" ? -Number(myBet) : 0
+        const bet   = Number(myBet)
+        const coinDelta = isBlackjack ? Math.floor(bet * 3 / 2)
+          : outcomeClass === "win"     ? bet
+          : outcomeClass === "lose"    ? -bet
+          : 0  // push
 
-        setGameInfo(state) // update player info
+        setGameInfo(state)
 
         // Progressive dealer reveal
         const allDealerCards = state?.dealer_cards ?? []
@@ -346,10 +402,13 @@ export default function GameBoard() {
         revealTimers.current.push(setTimeout(() => {
           setRevealSeq(null)
           setRoundEnd({
-            dealerPoints: dealerPts,
-            winners:      Array.from(winnersSet),
-            losers:       Array.from(losersSet),
+            dealerPoints:    dealerPts,
+            dealerBlackjack: result.dealer_blackjack ?? false,
+            allWinners:      [...Array.from(bjWinnersSet), ...Array.from(winnersSet)],
+            losers:          Array.from(losersSet),
             outcomeClass,
+            isBlackjack,
+            isPush,
             myPoints,
             coinDelta,
           })
@@ -379,12 +438,13 @@ export default function GameBoard() {
       }
     }
 
-    socket.onclose = () => { setJoined(false); setStatus("Connexion fermée.") }
-    socket.onerror = () => setStatus("Erreur WebSocket.")
+      socket.onclose = () => { setJoined(false); setStatus("Connexion fermée.") }
+      socket.onerror = () => setStatus("Erreur WebSocket.")
+    })()
 
     return () => {
-      socket.close()
-      wsRef.current = null
+      cancelled = true
+      if (socket) { socket.close(); wsRef.current = null }
       clearRevealTimers()
     }
   }, [tableId, fetchCoins, clearRevealTimers])
@@ -424,6 +484,45 @@ export default function GameBoard() {
     }
   }
 
+  // ── Betting timer ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!joined || phase !== "Betting" || !selfPendingBet) { setBettingTimer(null); return }
+    setBettingTimer(BET_TIMER_MAX)
+    const id = setInterval(() => {
+      setBettingTimer(t => {
+        if (t === null || t <= 1) {
+          const ws = wsRef.current
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ kind: "game.bet", payload: { amount: 1 } }))
+          }
+          return null
+        }
+        return t - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [joined, phase, selfPendingBet])
+
+  // ── Turn timer ──────────────────────────────────────────────────────────────
+  const TURN_TIMER_MAX = 30
+  useEffect(() => {
+    if (!isMyTurn) { setTurnTimer(null); return }
+    setTurnTimer(TURN_TIMER_MAX)
+    const id = setInterval(() => {
+      setTurnTimer(t => {
+        if (t === null || t <= 1) {
+          const ws = wsRef.current
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ kind: "game.stay", payload: {} }))
+          }
+          return null
+        }
+        return t - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [isMyTurn])
+
   const handleBet = (amount) => {
     send("game.bet", { amount })
     fetchCoins()
@@ -458,7 +557,7 @@ export default function GameBoard() {
 
         {coins !== null && (
           <div className="gb-sidebar__coins">
-            <span>Vos coins</span>
+            <span>Vos coins: </span>
             <strong>{coins}</strong>
           </div>
         )}
@@ -578,9 +677,13 @@ export default function GameBoard() {
             coins={coins ?? 0}
             selfPendingBet={selfPendingBet}
             onBet={handleBet}
+            timer={bettingTimer}
           />
         ) : (
           <div className="gb-actions">
+            {isMyTurn && turnTimer !== null && (
+              <TimerRing seconds={turnTimer} max={TURN_TIMER_MAX} urgent={10} />
+            )}
             <button
               type="button"
               className="gb-btn gb-btn--hit"

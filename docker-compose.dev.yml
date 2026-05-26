@@ -18,12 +18,12 @@ services:
 
   game-engine:
     build:
-      context: docker/game-engine
+      context: game-engine
       dockerfile: Dockerfile.dev
     container_name: transcendance_game_engine_dev
     working_dir: /usr/src/game-engine
     volumes:
-      - ./docker/game-engine:/usr/src/game-engine
+      - ./game-engine:/usr/src/game-engine
       - /usr/local/cargo
       - /usr/local/rustup
     environment:

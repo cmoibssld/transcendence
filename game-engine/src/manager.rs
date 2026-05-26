@@ -79,12 +79,25 @@ impl GameManager {
                 // Last player stood — dealer plays, compute results
                 self.info.dealer_final(&mut self.deck);
                 let dealer_pts = self.info.dealer_points();
-                let mut winners: Vec<u32> = Vec::new();
-                let mut losers:  Vec<u32> = Vec::new();
+                let dealer_bj  = self.info.dealer_card_count() == 2 && dealer_pts == 21;
+
+                let mut bj_winners: Vec<u32> = Vec::new(); // blackjack → 3:2
+                let mut winners:    Vec<u32> = Vec::new(); // normal win → 1:1
+                let mut pushes:     Vec<u32> = Vec::new(); // tie / BJ vs BJ → bet returned
+                let mut losers:     Vec<u32> = Vec::new();
 
                 for (pid, pts) in self.info.players_points().iter() {
-                    if *pts <= 21 && (dealer_pts > 21 || *pts > dealer_pts) {
+                    let player_bj = self.info.player_card_count(pid) == 2 && *pts == 21;
+                    if player_bj && dealer_bj {
+                        pushes.push(*pid);
+                    } else if player_bj {
+                        bj_winners.push(*pid);
+                    } else if dealer_bj {
+                        losers.push(*pid);
+                    } else if *pts <= 21 && (dealer_pts > 21 || *pts > dealer_pts) {
                         winners.push(*pid);
+                    } else if *pts == dealer_pts && *pts <= 21 {
+                        pushes.push(*pid);
                     } else {
                         losers.push(*pid);
                     }
@@ -98,9 +111,12 @@ impl GameManager {
                     "payload": {
                         "game": self.info,
                         "result": {
-                            "dealer_points": dealer_pts,
-                            "winners": winners,
-                            "losers":  losers,
+                            "dealer_points":    dealer_pts,
+                            "dealer_blackjack": dealer_bj,
+                            "bj_winners": bj_winners,
+                            "winners":    winners,
+                            "pushes":     pushes,
+                            "losers":     losers,
                         }
                     }
                 });
@@ -112,15 +128,23 @@ impl GameManager {
                     result_json: round_end.to_string(),
                 };
 
-                // Coin deltas: winner +bet, loser -bet, tie 0
+                // Coin returns (bet already deducted at bet time):
+                //   blackjack 3:2 → bet * 5/2   (bet back + 1.5x profit)
+                //   normal win    → bet * 2      (bet back + 1x profit)
+                //   push / tie    → bet          (bet back, no profit)
+                //   loss          → 0            (already deducted)
                 let mut coin_deltas: Vec<(u32, u64)> = Vec::new();
+                for pid in &bj_winners {
+                    let bet = bets_snapshot.get(pid).copied().unwrap_or(0);
+                    coin_deltas.push((*pid, (bet * 5) / 2));
+                }
                 for pid in &winners {
                     let bet = bets_snapshot.get(pid).copied().unwrap_or(0);
-                    coin_deltas.push((*pid, bet));  // positive delta stored as u64
+                    coin_deltas.push((*pid, bet * 2));
                 }
-                for pid in &losers {
+                for pid in &pushes {
                     let bet = bets_snapshot.get(pid).copied().unwrap_or(0);
-                    coin_deltas.push((*pid, bet | (1 << 63))); // encode negative with high bit
+                    coin_deltas.push((*pid, bet));
                 }
 
                 self.restart();

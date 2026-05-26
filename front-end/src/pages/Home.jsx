@@ -11,9 +11,6 @@ const Home = () => {
       <section className="home-hero">
         <div className="home-eyebrow">Multijoueur · En ligne</div>
         <h1 className="home-title">Black<span>Jack</span></h1>
-        <p className="home-subtitle">
-          Rejoins une table, bats le croupier et prouve que tu as la meilleure main.
-        </p>
         <div className="home-actions">
           <Link to="/game" className="btn-primary home-btn-play">Jouer maintenant</Link>
           <Link to="/rules" className="btn-secondary">Règles du jeu</Link>

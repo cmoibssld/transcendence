@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import '../styles/Profile.css'
+import { apiFetch } from '../auth'
 
 const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? 'https://localhost:8443'
 
@@ -17,12 +18,7 @@ export default function Profile() {
   const [error,   setError]   = useState('')
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token')
-    if (!token) { setError('Non authentifié'); setLoading(false); return }
-
-    fetch(`${AUTH_URL}/auth/profile`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    apiFetch(`${AUTH_URL}/auth/profile`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(d => { setData(d); setLoading(false) })
       .catch(() => { setError('Impossible de charger le profil'); setLoading(false) })

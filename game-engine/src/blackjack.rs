@@ -161,20 +161,17 @@ impl GameInfo {
     pub fn dealer_final(&mut self, deck: &mut Deck) {
         loop {
             self.dealer_points = points_sum(&self.dealer_cards);
-            if self.winning_player() == 0 { break; }
-            if self.dealer_points >= 17 && self.winning_player() < 2 { break; }
+            if self.dealer_points >= 17 { break; }
             self.dealer_cards.push(deck.draw());
         }
     }
 
-    fn winning_player(&self) -> u8 {
-        let mut winners: u8 = 0;
-        for value in self.players_points.values() {
-            if (*value > self.dealer_points && *value <= 21) || (self.dealer_points > 21 && *value <= 21) {
-                winners += 1;
-            }
-        }
-        winners
+    pub fn dealer_card_count(&self) -> usize {
+        self.dealer_cards.len()
+    }
+
+    pub fn player_card_count(&self, player_id: &u32) -> usize {
+        self.players_cards.get(player_id).map(|c| c.len()).unwrap_or(0)
     }
 
     pub fn player_check(&mut self, player_id: &u32) -> Option<u32> {
