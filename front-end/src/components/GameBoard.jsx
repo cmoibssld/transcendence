@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import dealerAvatar from "../assets/dealer.png"
+
 import "../styles/GameBoard.css"
 
 const GAME_URL = import.meta.env.VITE_GAME_URL || "https://localhost:8443/api/game"
@@ -40,6 +40,21 @@ function handValue(cards) {
   total += aces
   if (aces > 0 && total + 10 <= 21) total += 10
   return total
+}
+
+// ─── Dealer CSS avatar ────────────────────────────────────────────────────────
+function DealerAvatar() {
+  return (
+    <div className="gb-dealer-avatar-css" aria-hidden="true">
+      <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="24" cy="16" r="9" fill="#2a2a34" stroke="rgba(196,168,130,0.3)" strokeWidth="1"/>
+        <path d="M10 44 Q12 30 24 28 Q36 30 38 44" fill="#1e1e28" stroke="rgba(196,168,130,0.2)" strokeWidth="1"/>
+        <path d="M20 29.5 L24 31.5 L28 29.5 L24 27.5 Z" fill="#c4a882" opacity="0.85"/>
+        <circle cx="21" cy="15" r="1.2" fill="#c4a882" opacity="0.7"/>
+        <circle cx="27" cy="15" r="1.2" fill="#c4a882" opacity="0.7"/>
+      </svg>
+    </div>
+  )
 }
 
 // ─── CardImage with flip animation ───────────────────────────────────────────
@@ -86,9 +101,9 @@ function Hand({ cards = [], hiddenIndex, flippingIndex, points, label, isActive 
 
 // ─── Outcome overlay ──────────────────────────────────────────────────────────
 const OUTCOME_CONFIG = {
-  win:     { emoji: "🏆", title: "Victoire !",  cls: "outcome--win"  },
-  lose:    { emoji: "💀", title: "Défaite",     cls: "outcome--lose" },
-  neutral: { emoji: "🤝", title: "Égalité",     cls: "outcome--tie"  },
+  win:     { title: "Victoire",  cls: "outcome--win"  },
+  lose:    { title: "Défaite",   cls: "outcome--lose" },
+  neutral: { title: "Égalité",   cls: "outcome--tie"  },
 }
 
 function OutcomeScreen({ roundEnd, myPoints, onClose }) {
@@ -97,7 +112,6 @@ function OutcomeScreen({ roundEnd, myPoints, onClose }) {
   return (
     <div className={`outcome-overlay ${cfg.cls}`} role="dialog" aria-modal="true">
       <div className="outcome-card">
-        <div className="outcome-emoji">{cfg.emoji}</div>
         <h2 className="outcome-title">{cfg.title}</h2>
 
         {coinDelta !== 0 && (
@@ -433,7 +447,11 @@ export default function GameBoard() {
               onClick={() => setTableId(String(t.table_id))}
             >
               Table {t.table_id} — {t.players} joueur{t.players !== 1 ? "s" : ""}
-              {" — "}{t.phase === "Playing" ? "⚔️ en jeu" : t.open ? "🟢 ouverte" : "🔴 fermée"}
+              {" — "}
+              <span
+                className={`table-dot ${t.phase === "Playing" ? "table-dot--playing" : t.open ? "table-dot--open" : "table-dot--closed"}`}
+              />
+              {t.phase === "Playing" ? "en jeu" : t.open ? "ouverte" : "fermée"}
             </button>
           ))}
         </div>
@@ -487,7 +505,7 @@ export default function GameBoard() {
           {/* dealer */}
           <div className="gb-dealer-zone">
             <div className="gb-dealer-avatar">
-              <img src={dealerAvatar} alt="Croupier" />
+              <DealerAvatar />
             </div>
             <Hand
               label="Croupier"
