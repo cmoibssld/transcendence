@@ -89,7 +89,7 @@ function Hand({ cards = [], hiddenIndex, flippingIndex, points, label, isActive 
         {cards.length === 0
           ? <span className="hand__empty">–</span>
           : cards.map((card, i) => (
-            <div key={i} className="card-slot" style={{ "--delay": `${i * 120}ms` }}>
+            <div key={card ? `${card.color}-${card.value}-${i}` : i} className="card-slot" style={{ "--delay": `${i * 120}ms` }}>
               <CardImage card={card} hidden={i === hiddenIndex} flipping={i === flippingIndex} />
             </div>
           ))
@@ -551,7 +551,7 @@ export default function GameBoard() {
                     <div className="gb-seat__badge">
                       <span>Joueur {pid}{isSelf ? " (vous)" : ""}</span>
                       {hasBet && <em className="bet-tag">Mise : {bet}</em>}
-                      {isPending && <em className="pending-tag">⏳ mise…</em>}
+                      {isPending && <em className="pending-tag">mise…</em>}
                       {phase === "Playing" && typeof pts === "number" && (
                         <strong>{pts} pts</strong>
                       )}

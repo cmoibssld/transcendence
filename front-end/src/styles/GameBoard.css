@@ -106,6 +106,24 @@
   color: rgba(240, 245, 242, 0.7);
 }
 
+.gb-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.gb-coins-badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(196, 168, 130, 0.1);
+  border: 1px solid rgba(196, 168, 130, 0.2);
+  color: var(--accent);
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .gb-table-select {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
@@ -138,12 +156,6 @@
   align-items: center;
   gap: 10px;
   z-index: 2;
-}
-
-.gb-dealer-avatar img {
-  width: 80px;
-  height: auto;
-  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.45));
 }
 
 .gb-dealer-avatar-css {
@@ -448,9 +460,31 @@
 }
 
 .outcome-title {
-  margin: 0 0 22px;
+  margin: 0 0 16px;
   font-size: clamp(1.6rem, 3vw, 2.2rem);
   color: #f5f2e8;
+}
+
+.outcome-coins {
+  display: inline-block;
+  margin: 0 0 18px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.outcome-coins--win {
+  background: rgba(107, 203, 139, 0.12);
+  border: 1px solid rgba(107, 203, 139, 0.3);
+  color: #6bcb8b;
+}
+
+.outcome-coins--lose {
+  background: rgba(224, 92, 92, 0.12);
+  border: 1px solid rgba(224, 92, 92, 0.3);
+  color: #e05c5c;
 }
 
 .outcome-scores {
