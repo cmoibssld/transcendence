@@ -1,132 +1,84 @@
-import { useState } from "react";
-import "../styles/Profile.css";
+import { useEffect, useState } from 'react'
+import '../styles/Profile.css'
 
-import JB from "../assets/JB.jpg";
-import Aloun from "../assets/Aloun.jpg";
-import Alexis from "../assets/Alexis.jpg";
-import Adrien from "../assets/Adrien.jpg";
+const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? 'https://localhost:8443'
 
-const Profile = () => {
+function AvatarDisplay({ url, username }) {
+  if (url) {
+    return <img src={url} alt={username} className="profile-avatar-img" />
+  }
+  const initial = (username ?? 'J')[0].toUpperCase()
+  return <div className="profile-avatar-initials">{initial}</div>
+}
 
-  const playerId = "BJX-4207";
+export default function Profile() {
+  const [data,    setData]    = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState('')
 
-  const avatarList = [JB, Aloun, Alexis, Adrien];
+  useEffect(() => {
+    const token = localStorage.getItem('access_token')
+    if (!token) { setError('Non authentifié'); setLoading(false); return }
 
-  const [showAvatars, setShowAvatars] = useState(false);
+    fetch(`${AUTH_URL}/auth/profile`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => { setError('Impossible de charger le profil'); setLoading(false) })
+  }, [])
 
-  const [profile, setProfile] = useState({
-    firstName: "John",
-    lastName: "Doe",
-    username: "johndoe",
-    email: "john@mail.com",
-    country: "France",
-    city: "Paris",
-    gains: "$25,400",
-    avatar: JB
-  });
+  if (loading) {
+    return (
+      <div className="page-shell">
+        <section className="page-card profile-page">
+          <p className="profile-loading">Chargement…</p>
+        </section>
+      </div>
+    )
+  }
 
-  const handleChange = (e) => {
-    setProfile({
-      ...profile,
-      [e.target.name]: e.target.value
-    });
-  };
+  if (error) {
+    return (
+      <div className="page-shell">
+        <section className="page-card profile-page">
+          <p className="profile-error">{error}</p>
+        </section>
+      </div>
+    )
+  }
 
-  const selectAvatar = (img) => {
-    setProfile({
-      ...profile,
-      avatar: img
-    });
-  };
+  const isGitHub = !!data.avatar_url
 
   return (
     <div className="page-shell">
-      <section className="profile-page page-card">
-        <div className="profile-container">
-          <div className="profile-header">
-            <span className="section-chip">Profile</span>
-            <img src={profile.avatar} alt="Profile avatar" className="profile-avatar" />
+      <section className="page-card profile-page">
+        <div className="profile-inner">
 
-            <div className="profile-info">
-              <h2>{profile.firstName} {profile.lastName}</h2>
-              <p>@{profile.username}</p>
-              <p className="profile-id">ID: {playerId}</p>
+          <div className="profile-sidebar">
+            <span className="section-chip">Profil</span>
+            <div className="profile-avatar">
+              <AvatarDisplay url={data.avatar_url} username={data.username} />
+            </div>
+            <h2 className="profile-name">{data.username}</h2>
+            <p className="profile-account-type">
+              {isGitHub ? 'Compte GitHub' : 'Compte local'}
+            </p>
+          </div>
 
-              <button
-                className="avatar-btn"
-                onClick={() => setShowAvatars(true)}
-              >
-                Change avatar
-              </button>
+          <div className="profile-stats">
+            <div className="profile-stat-card">
+              <span className="profile-stat-label">Coins</span>
+              <strong className="profile-stat-value">{data.coins.toLocaleString()}</strong>
+            </div>
+            <div className="profile-stat-card">
+              <span className="profile-stat-label">Pseudo</span>
+              <strong className="profile-stat-value">{data.username}</strong>
             </div>
           </div>
 
-          <div className="profile-form">
-            <div className="field">
-              <label>Prénom</label>
-              <input name="firstName" value={profile.firstName} onChange={handleChange}/>
-            </div>
-
-            <div className="field">
-              <label>Nom</label>
-              <input name="lastName" value={profile.lastName} onChange={handleChange}/>
-            </div>
-
-            <div className="field">
-              <label>Username</label>
-              <input name="username" value={profile.username} onChange={handleChange}/>
-            </div>
-
-            <div className="field">
-              <label>Email</label>
-              <input name="email" value={profile.email} onChange={handleChange}/>
-            </div>
-
-            <div className="field">
-              <label>Pays</label>
-              <input name="country" value={profile.country} onChange={handleChange}/>
-            </div>
-
-            <div className="field">
-              <label>Ville</label>
-              <input name="city" value={profile.city} onChange={handleChange}/>
-            </div>
-
-            <button className="save-btn">
-              Save profile
-            </button>
-          </div>
         </div>
       </section>
-
-      {showAvatars && (
-        <div className="avatar-modal">
-          <div className="avatar-box">
-            <h3>Choose your avatar</h3>
-
-            <div className="avatar-grid">
-              {avatarList.map((img, i) => (
-                <img
-                  key={i}
-                  src={img}
-                  alt={`Avatar option ${i + 1}`}
-                  className={`avatar-choice ${profile.avatar === img ? "active" : ""}`}
-                  onClick={() => selectAvatar(img)}
-                />
-              ))}
-            </div>
-
-            <button
-              className="confirm-btn"
-              onClick={() => setShowAvatars(false)}
-            >
-              Confirm
-            </button>
-          </div>
-        </div>
-      )}
     </div>
-  );
-};
-
-export default Profile;
+  )
+}

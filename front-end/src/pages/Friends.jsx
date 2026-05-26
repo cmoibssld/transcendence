@@ -1,16 +1,12 @@
 import "../styles/Friends.css";
 
-import Aloun from "../assets/Aloun.jpg";
-import Alexis from "../assets/Alexis.jpg";
-import Adrien from "../assets/Adrien.jpg";
-
 const Friends = () => {
   const playerId = "BJX-4207";
 
   const friends = [
-    { name: "Aloun", avatar: Aloun, online: true, gains: "$12,450" },
-    { name: "Alexis", avatar: Alexis, online: true, gains: "$21,900" },
-    { name: "Adrien", avatar: Adrien, online: false, gains: "$5,300" },
+    { name: "Aloun",  online: true,  gains: "$12,450" },
+    { name: "Alexis", online: true,  gains: "$21,900" },
+    { name: "Adrien", online: false, gains: "$5,300"  },
   ];
 
   return (
@@ -34,11 +30,7 @@ const Friends = () => {
           {friends.length > 0 ? (
             friends.map((friend, index) => (
               <div className="friend-card" key={index}>
-                <img
-                  src={friend.avatar}
-                  alt={friend.name}
-                  className="friend-avatar"
-                />
+                <div className="friend-avatar-initial">{friend.name[0]}</div>
 
                 <span className="friend-name">
                   {friend.name}
