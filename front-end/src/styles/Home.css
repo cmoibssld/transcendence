@@ -25,9 +25,7 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  background:
-    radial-gradient(ellipse 70% 55% at 50% 55%, rgba(4, 36, 22, 0.55), transparent),
-    linear-gradient(180deg, rgba(3, 6, 5, 0.18) 0%, rgba(3, 6, 5, 0.72) 100%);
+  background: linear-gradient(180deg, rgba(10, 10, 14, 0.28) 0%, rgba(10, 10, 14, 0.82) 100%);
 }
 
 /* ─── Hero panel ────────────────────────────────────────────────────────── */
@@ -66,10 +64,7 @@
 
 .home-title span {
   display: block;
-  background: linear-gradient(135deg, #f2c461 10%, #e0a830 55%, #f2c461 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent);
 }
 
 .home-subtitle {
