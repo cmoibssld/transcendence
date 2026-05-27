@@ -243,6 +243,78 @@ function BettingPanel({ coins, selfPendingBet, onBet, timer }) {
   )
 }
 
+// ─── Inline Chat ─────────────────────────────────────────────────────────────
+function InlineChat({ wsRef, tableId, messages }) {
+  const [draft, setDraft] = useState("")
+  const scrollRef = useRef(null)
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+  }, [messages])
+
+  const sendMessage = () => {
+    const msg = draft.trim()
+    if (!msg || wsRef.current?.readyState !== WebSocket.OPEN) return
+    wsRef.current.send(JSON.stringify({
+      kind: "chat.message",
+      payload: { room_id: `table-${tableId}`, message: msg },
+    }))
+    setDraft("")
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+
+  return (
+    <aside className="gb-chat">
+      <div className="gb-chat__header">
+        <span className="gb-chat__title">Chat · Table {tableId}</span>
+      </div>
+      <div className="gb-chat__messages">
+        {messages.length === 0 && (
+          <p className="gb-chat__empty">Aucun message</p>
+        )}
+        {messages.map((msg, i) => {
+          const envelope = msg.payload ?? msg
+          const isSystem = msg.kind === "chat.system" || envelope.kind === "chat.system"
+          return (
+            <div
+              key={`${envelope.timestamp ?? i}-${i}`}
+              className={`gb-chat__msg${isSystem ? " gb-chat__msg--system" : ""}`}
+            >
+              {!isSystem && (
+                <strong className="gb-chat__author">{envelope.user}</strong>
+              )}
+              <p>{envelope.message}</p>
+            </div>
+          )
+        })}
+        <div ref={scrollRef} />
+      </div>
+      <form
+        className="gb-chat__composer"
+        onSubmit={(e) => { e.preventDefault(); sendMessage() }}
+      >
+        <textarea
+          className="gb-chat__input"
+          rows={2}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Message…"
+        />
+        <button type="submit" className="gb-chat__send" disabled={!draft.trim()}>
+          ↵
+        </button>
+      </form>
+    </aside>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function GameBoard() {
   const [tables,    setTables]    = useState([])
@@ -257,6 +329,7 @@ export default function GameBoard() {
   const [turnTimer,    setTurnTimer]    = useState(null)
   const [skippedThisRound, setSkippedThisRound] = useState(false)
   const skippedRef            = useRef(false)
+  const [chatMessages, setChatMessages] = useState([])
   // Reveal state: null = idle, { cards, flipping } = animating
   const [revealSeq, setRevealSeq] = useState(null)
 
@@ -306,12 +379,17 @@ export default function GameBoard() {
 
     setJoined(false); setGameInfo(null); setSelfId(null)
     selfIdRef.current = null; setRoundEnd(null); setRevealSeq(null)
-    skippedRef.current = false; setSkippedThisRound(false)
+    skippedRef.current = false; setSkippedThisRound(false); setChatMessages([])
     clearRevealTimers()
     setStatus(`Connexion à la table ${tableId}…`)
 
     socket.onopen = () => {
       socket.send(JSON.stringify({ kind: "game.join", payload: { table_id: Number(tableId) } }))
+      const username = localStorage.getItem("username") ?? "Joueur"
+      socket.send(JSON.stringify({
+        kind: "chat.join",
+        payload: { room_id: `table-${tableId}`, name: username },
+      }))
     }
 
     socket.onmessage = ({ data }) => {
@@ -320,6 +398,12 @@ export default function GameBoard() {
 
       const kind    = msg.kind
       const payload = msg.payload ?? msg
+
+      // ── chat messages ─────────────────────────────────────────────────────
+      if (kind?.startsWith("chat.")) {
+        setChatMessages(prev => [...prev, msg])
+        return
+      }
 
       // ── joined ────────────────────────────────────────────────────────────
       if (kind === "game.joined") {
@@ -455,7 +539,16 @@ export default function GameBoard() {
 
     return () => {
       cancelled = true
-      if (socket) { socket.close(); wsRef.current = null }
+      if (socket) {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            kind: "chat.leave",
+            payload: { room_id: `table-${tableId}` },
+          }))
+        }
+        socket.close()
+        wsRef.current = null
+      }
       clearRevealTimers()
     }
   }, [tableId, fetchCoins, clearRevealTimers])
@@ -726,6 +819,7 @@ export default function GameBoard() {
           </div>
         )}
       </div>
+      <InlineChat wsRef={wsRef} tableId={tableId} messages={chatMessages} />
     </div>
   )
 }
