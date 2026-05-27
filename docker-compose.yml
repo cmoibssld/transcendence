@@ -101,7 +101,7 @@ services:
       REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev-refresh-secret-change-me}
       SESSION_KEY: ${SESSION_KEY:-dev-session-key-do-not-use-in-prod-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
       OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-http://localhost:8081/auth/github/callback}
-      FRONTEND_REDIRECT_URL: ${FRONTEND_REDIRECT_URL:-http://localhost:3000}
+      FRONTEND_REDIRECT_URL: ${FRONTEND_REDIRECT_URL:-http://localhost:3000/auth/callback}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       GITHUB_ID: ${GITHUB_ID}
       GITHUB_SECRET: ${GITHUB_SECRET}

@@ -23,9 +23,6 @@ function OAuthCallback() {
     const code = params.get("code")
     if (!code) return
 
-    // Strip code from URL immediately — tokens never touch the URL
-    navigate("/", { replace: true })
-
     const authUrl = import.meta.env.VITE_AUTH_URL ?? "http://localhost:8081"
     fetch(`${authUrl}/auth/exchange?code=${encodeURIComponent(code)}`)
       .then(r => r.json())
@@ -35,9 +32,14 @@ function OAuthCallback() {
           localStorage.setItem("refresh_token", data.refresh_token)
           if (data.username) localStorage.setItem("username", data.username)
           if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url)
+          navigate("/", { replace: true })
+        } else {
+          navigate("/login?error=oauth_failed", { replace: true })
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        navigate("/login?error=oauth_failed", { replace: true })
+      })
   }, [location.search, navigate])
 
   return null
@@ -46,12 +48,12 @@ function OAuthCallback() {
 function App() {
   return (
     <Router>
-      <OAuthCallback />
       <div className="app-shell">
         <Header />
         <main className="app-main">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/auth/callback" element={<OAuthCallback />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/profile" element={<Profile />} />

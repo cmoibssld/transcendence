@@ -441,14 +441,14 @@ async fn github_callback(
     let frontend_redirect = env::var("FRONTEND_REDIRECT_URL")
         .unwrap_or_else(|_| "http://localhost:3000".to_string());
 
-    let code: String = rand::thread_rng()
+    let one_time_code: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(32)
         .map(char::from)
         .collect();
-    store.lock().unwrap().insert(code.clone(), (response_data, Instant::now()));
+    store.lock().unwrap().insert(one_time_code.clone(), (response_data, Instant::now()));
 
-    let redirect_url = format!("{}?code={}", frontend_redirect, urlencoding::encode(&code));
+    let redirect_url = format!("{}?code={}", frontend_redirect, urlencoding::encode(&one_time_code));
 
     Ok(HttpResponse::Found()
         .append_header(("Location", redirect_url))
@@ -684,17 +684,13 @@ async fn exchange_code(
     }
 
     let mut map = store.lock().unwrap();
-    match map.get(&code) {
-        Some((_, created_at)) if created_at.elapsed() > std::time::Duration::from_secs(60) => {
-            map.remove(&code);
-            HttpResponse::Gone().json(serde_json::json!({"error": "code expired"}))
-        }
-        Some(_) => {
-            let (resp, _) = map.remove(&code).unwrap();
-            HttpResponse::Ok().json(resp)
-        }
+    // Evict all expired entries on each call
+    map.retain(|_, (_, created_at)| created_at.elapsed() <= std::time::Duration::from_secs(60));
+
+    match map.remove(&code) {
+        Some((resp, _)) => HttpResponse::Ok().json(resp),
         None => HttpResponse::BadRequest()
-            .json(serde_json::json!({"error": "invalid code"})),
+            .json(serde_json::json!({"error": "invalid or expired code"})),
     }
 }
 
@@ -818,5 +814,35 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_web::test]
+    async fn test_exchange_code_expired() {
+        let store: web::Data<CodeStore> = web::Data::new(
+            Mutex::new(HashMap::new())
+        );
+        {
+            let mut map = store.lock().unwrap();
+            map.insert("expiredcode".to_string(), (
+                AuthResponse {
+                    access_token: "tok".into(),
+                    refresh_token: "ref".into(),
+                    username: "alice".into(),
+                    avatar_url: None,
+                },
+                Instant::now() - std::time::Duration::from_secs(61),
+            ));
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(store.clone())
+                .route("/auth/exchange", web::get().to(exchange_code))
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/auth/exchange?code=expiredcode")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400); // expired codes return 400 after eviction
     }
 }
