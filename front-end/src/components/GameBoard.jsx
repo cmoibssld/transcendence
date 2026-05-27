@@ -274,7 +274,7 @@ function InlineChat({ wsRef, tableId, messages }) {
       <div className="gb-chat__header">
         <span className="gb-chat__title">Chat · Table {tableId}</span>
       </div>
-      <div className="gb-chat__messages">
+      <div className="gb-chat__messages" role="log" aria-live="polite">
         {messages.length === 0 && (
           <p className="gb-chat__empty">Aucun message</p>
         )}
@@ -283,7 +283,7 @@ function InlineChat({ wsRef, tableId, messages }) {
           const isSystem = msg.kind === "chat.system" || envelope.kind === "chat.system"
           return (
             <div
-              key={`${envelope.timestamp ?? i}-${i}`}
+              key={msg._id ?? i}
               className={`gb-chat__msg${isSystem ? " gb-chat__msg--system" : ""}`}
             >
               {!isSystem && (
@@ -306,8 +306,9 @@ function InlineChat({ wsRef, tableId, messages }) {
           onChange={e => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Message…"
+          aria-label="Votre message"
         />
-        <button type="submit" className="gb-chat__send" disabled={!draft.trim()}>
+        <button type="submit" className="gb-chat__send" disabled={!draft.trim()} aria-label="Envoyer">
           ↵
         </button>
       </form>
@@ -401,7 +402,7 @@ export default function GameBoard() {
 
       // ── chat messages ─────────────────────────────────────────────────────
       if (kind?.startsWith("chat.")) {
-        setChatMessages(prev => [...prev, msg])
+        setChatMessages(prev => [...prev, { ...msg, _id: prev.length }])
         return
       }
 
