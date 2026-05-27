@@ -215,6 +215,7 @@ impl GameData {
             "game.bet"   => self.do_bet(user_id, payload),
             "game.hit"   => self.do_hit(user_id),
             "game.stay"  => self.do_stay(user_id),
+            "game.skip"  => self.do_skip(user_id),
             "game.leave" => self.do_leave(user_id),
             _ => IngestResult {
                 personal: Some(serde_json::json!({
@@ -320,6 +321,72 @@ impl GameData {
             personal: None,
             broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
             post_broadcast: None, audience, history: None, coin_updates: vec![],
+        }
+    }
+
+    fn do_skip(&mut self, user_id: u64) -> IngestResult {
+        let (table_id, player_id) = match self.user_sessions.get(&user_id) {
+            Some(&s) => s,
+            None => return IngestResult {
+                personal: Some(serde_json::json!({
+                    "kind": "game.error", "payload": { "message": "Not in a game" }
+                })),
+                broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
+            },
+        };
+
+        let table = match self.tables.get_mut(&table_id) {
+            Some(t) => t,
+            None => return IngestResult {
+                personal: None, broadcast: None, post_broadcast: None,
+                audience: vec![], history: None, coin_updates: vec![],
+            },
+        };
+
+        match table.info.skip_player(player_id) {
+            None => IngestResult {
+                personal: Some(serde_json::json!({
+                    "kind": "game.error", "payload": { "message": "Cannot skip now" }
+                })),
+                broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
+            },
+            Some(0) => {
+                // Still waiting for other players
+                let audience  = table.audience();
+                let state_val = serde_json::to_value(&table.info).unwrap_or_default();
+                IngestResult {
+                    personal: None,
+                    broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
+                    post_broadcast: None, audience, history: None, coin_updates: vec![],
+                }
+            }
+            Some(1) => {
+                // All remaining players have bet — deal and start playing
+                // deal_to_player silently skips players removed from players_cards (the one who skipped)
+                table.info.start_playing();
+                let ids: Vec<u32> = table.players.keys().cloned().collect();
+                for pid in ids {
+                    table.info.deal_to_player(pid, &mut table.deck, 2);
+                }
+                let audience  = table.audience();
+                let state_val = serde_json::to_value(&table.info).unwrap_or_default();
+                IngestResult {
+                    personal: None,
+                    broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
+                    post_broadcast: None, audience, history: None, coin_updates: vec![],
+                }
+            }
+            Some(_) => {
+                // Some(2): everyone skipped — restart the round immediately
+                table.restart();
+                let audience  = table.audience();
+                let state_val = serde_json::to_value(&table.info).unwrap_or_default();
+                IngestResult {
+                    personal: None,
+                    broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
+                    post_broadcast: None, audience, history: None, coin_updates: vec![],
+                }
+            }
         }
     }
 
