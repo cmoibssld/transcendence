@@ -13,14 +13,22 @@ use jsonwebtoken::{encode, decode, EncodingKey, DecodingKey, Header, Validation}
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::collections::HashMap;
 use std::env;
-use std::time::Duration as StdDuration;
+use std::sync::Mutex;
+use std::time::{Duration as StdDuration, Instant};
 
 mod models;
 mod schema;
 
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 type HmacSha256 = Hmac<Sha256>;
+type CodeStore = Mutex<HashMap<String, (AuthResponse, Instant)>>;
+
+#[derive(Deserialize)]
+struct ExchangeQuery {
+    code: String,
+}
 
 #[derive(Deserialize)]
 struct GitHubUser {
@@ -48,7 +56,7 @@ struct RefreshRequest {
     refresh_token: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct AuthResponse {
     access_token: String,
     refresh_token: String,
@@ -341,6 +349,7 @@ async fn github_callback(
     pool: web::Data<DbPool>,
     req: HttpRequest,
     session: Session,
+    store: web::Data<CodeStore>,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse> {
     let code = query
@@ -432,15 +441,14 @@ async fn github_callback(
     let frontend_redirect = env::var("FRONTEND_REDIRECT_URL")
         .unwrap_or_else(|_| "http://localhost:3000".to_string());
 
-    // Pass tokens as query params so the SPA can store them in localStorage
-    let redirect_url = format!(
-        "{}?access_token={}&refresh_token={}&username={}&avatar_url={}",
-        frontend_redirect,
-        urlencoding::encode(&response_data.access_token),
-        urlencoding::encode(&response_data.refresh_token),
-        urlencoding::encode(&user.username),
-        urlencoding::encode(response_data.avatar_url.as_deref().unwrap_or("")),
-    );
+    let code: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect();
+    store.lock().unwrap().insert(code.clone(), (response_data, Instant::now()));
+
+    let redirect_url = format!("{}?code={}", frontend_redirect, urlencoding::encode(&code));
 
     Ok(HttpResponse::Found()
         .append_header(("Location", redirect_url))
@@ -665,6 +673,31 @@ async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
+async fn exchange_code(
+    query: web::Query<ExchangeQuery>,
+    store: web::Data<CodeStore>,
+) -> impl Responder {
+    let code = query.code.trim().to_string();
+    if code.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "missing code"}));
+    }
+
+    let mut map = store.lock().unwrap();
+    match map.get(&code) {
+        Some((_, created_at)) if created_at.elapsed() > std::time::Duration::from_secs(60) => {
+            map.remove(&code);
+            HttpResponse::Gone().json(serde_json::json!({"error": "code expired"}))
+        }
+        Some(_) => {
+            let (resp, _) = map.remove(&code).unwrap();
+            HttpResponse::Ok().json(resp)
+        }
+        None => HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "invalid code"})),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
@@ -679,10 +712,12 @@ async fn main() -> std::io::Result<()> {
 
     let session_key = env::var("SESSION_KEY").expect("SESSION_KEY must be set");
     let secret_key = Key::from(session_key.as_bytes());
+    let code_store: web::Data<CodeStore> = web::Data::new(Mutex::new(HashMap::new()));
 
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
+            .app_data(code_store.clone())
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
                     .cookie_secure(env::var("COOKIE_SECURE").ok().as_deref() != Some("false"))
@@ -705,6 +740,7 @@ async fn main() -> std::io::Result<()> {
             .route("/health", web::get().to(health))
             .route("/auth/github/login", web::get().to(github_login))
             .route("/auth/github/callback", web::get().to(github_callback))
+            .route("/auth/exchange", web::get().to(exchange_code))
             .route("/auth/register", web::post().to(register))
             .route("/auth/login", web::post().to(login))
             .route("/auth/logout", web::post().to(logout))
@@ -718,4 +754,69 @@ async fn main() -> std::io::Result<()> {
     .bind("0.0.0.0:8081")?
     .run()
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, web, App};
+    use std::sync::Mutex;
+    use std::collections::HashMap;
+
+    #[actix_web::test]
+    async fn test_exchange_code_invalid() {
+        let store: web::Data<CodeStore> = web::Data::new(
+            Mutex::new(HashMap::new())
+        );
+        let app = test::init_service(
+            App::new()
+                .app_data(store.clone())
+                .route("/auth/exchange", web::get().to(exchange_code))
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/auth/exchange?code=doesnotexist")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_web::test]
+    async fn test_exchange_code_valid_consumed() {
+        let store: web::Data<CodeStore> = web::Data::new(
+            Mutex::new(HashMap::new())
+        );
+        // Pre-seed one code
+        {
+            let mut map = store.lock().unwrap();
+            map.insert("testcode123".to_string(), (
+                AuthResponse {
+                    access_token: "tok".into(),
+                    refresh_token: "ref".into(),
+                    username: "alice".into(),
+                    avatar_url: None,
+                },
+                Instant::now(),
+            ));
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(store.clone())
+                .route("/auth/exchange", web::get().to(exchange_code))
+        ).await;
+
+        // First call: 200
+        let req = test::TestRequest::get()
+            .uri("/auth/exchange?code=testcode123")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        // Second call with same code: 400 (consumed)
+        let req = test::TestRequest::get()
+            .uri("/auth/exchange?code=testcode123")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+    }
 }

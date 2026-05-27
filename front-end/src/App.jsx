@@ -14,27 +14,30 @@ import History from "./pages/History"
 import Chat from "./pages/Chat"
 import "./App.css"
 
-// Reads tokens from the GitHub OAuth redirect (?access_token=...&refresh_token=...&username=...)
-// and stores them in localStorage, then strips the params from the URL.
 function OAuthCallback() {
   const navigate = useNavigate()
   const location = useLocation()
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const accessToken = params.get("access_token")
-    const refreshToken = params.get("refresh_token")
-    const username = params.get("username")
+    const code = params.get("code")
+    if (!code) return
 
-    if (accessToken && refreshToken) {
-      localStorage.setItem("access_token", accessToken)
-      localStorage.setItem("refresh_token", refreshToken)
-      if (username) localStorage.setItem("username", username)
-      const avatarUrl = params.get("avatar_url")
-      if (avatarUrl) localStorage.setItem("avatar_url", avatarUrl)
-      // Replace current entry so back-button doesn't re-process the tokens
-      navigate("/", { replace: true })
-    }
+    // Strip code from URL immediately — tokens never touch the URL
+    navigate("/", { replace: true })
+
+    const authUrl = import.meta.env.VITE_AUTH_URL ?? "http://localhost:8081"
+    fetch(`${authUrl}/auth/exchange?code=${encodeURIComponent(code)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.access_token && data.refresh_token) {
+          localStorage.setItem("access_token", data.access_token)
+          localStorage.setItem("refresh_token", data.refresh_token)
+          if (data.username) localStorage.setItem("username", data.username)
+          if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url)
+        }
+      })
+      .catch(() => {})
   }, [location.search, navigate])
 
   return null
