@@ -1,6 +1,5 @@
 use serde::{Serialize, Deserialize};
 use actix_web::{Error, HttpRequest, HttpResponse, web};
-use std::collections::HashMap;
 use log::info;
 use crate::ws_client::{Gamer};
 use std::sync::Mutex;
@@ -57,19 +56,21 @@ pub async fn send_chat_info(
     HttpResponse::Ok().body(resp)
 }
 
-pub async fn check_request(
+// Two things: 
+// - check respect of REST api
+// - see how to handle request (update of game)
+pub async fn handle_request(
     req: HttpRequest,
     stream: web::Payload,
-    body: web::Json<RestApi>, 
-    data: web::Data<Mutex<HashMap<u32, Gamer>>>
+    body: web::Json<RestApi>,
+    data: web::Data<Mutex<Vec<Gamer>>>
 ) -> Result<HttpResponse, Error> {
     info!("Request content: {}", &body.content);
-    if data.lock().unwrap().get(&body.destination).is_none() {
+    if body.nature != "update" {
         let new_gamer = Gamer::new(body.destination, &req, stream)?;
-        data.lock().unwrap().insert(body.destination, new_gamer);
-        // start_chat(data.get_mut(&i).expect("If failed, error return above"));
+        data.lock().unwrap().push(new_gamer);
     } else {
-        info!("Websocket exist for player {}", body.destination);
+        info!("Updating game in table {}", body.destination);
     }
     if &body.nature == "game" {
         Ok(send_game_info(body.destination, &body.content).await)

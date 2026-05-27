@@ -1,5 +1,4 @@
 use actix_web::{App, HttpServer, web};
-use std::collections::HashMap;
 use log::info;
 use std::sync::Mutex;
 
@@ -18,8 +17,8 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(Mutex::new(HashMap::<u32, Vec<ws_client::Gamer>>::new()))) // Storing id+websocket addr
-            .route("/ws_service", web::post().to(api::check_request))
+            .app_data(web::Data::new(Mutex::new(Vec::<ws_client::Gamer>::new()))) // Storing id+websocket addr
+            .route("/ws_service", web::post().to(api::handle_request))
             // .route("/game", web::post().to(api::update_game))
     })
     .bind(("127.0.0.1", 4567))?
