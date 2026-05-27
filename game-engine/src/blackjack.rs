@@ -137,6 +137,32 @@ impl GameInfo {
         self.pending_bets.is_empty() && !self.players_in_game.is_empty()
     }
 
+    /// Remove a player from this round without placing a bet.
+    /// Returns:
+    ///   None    – player not in pending_bets or phase is not Betting (invalid call)
+    ///   Some(0) – skipped; still waiting for other players to bet/skip
+    ///   Some(1) – pending_bets now empty and players remain → start playing
+    ///   Some(2) – pending_bets now empty and no players remain → restart
+    pub fn skip_player(&mut self, player_id: u32) -> Option<u8> {
+        if self.phase != Phase::Betting {
+            return None;
+        }
+        let idx = self.pending_bets.iter().position(|&p| p == player_id)?;
+        self.pending_bets.remove(idx);
+        self.players_in_game.retain(|&p| p != player_id);
+        self.players_cards.remove(&player_id);
+        self.players_points.remove(&player_id);
+
+        if !self.pending_bets.is_empty() {
+            return Some(0); // still waiting for others
+        }
+        if self.players_in_game.is_empty() {
+            Some(2) // everyone skipped — restart needed
+        } else {
+            Some(1) // all remaining players are ready — deal and play
+        }
+    }
+
     pub fn start_playing(&mut self) {
         self.phase = Phase::Playing;
         if let Some(&first) = self.players_in_game.first() {
