@@ -19,8 +19,9 @@ type DbPool = Pool<ConnectionManager<PgConnection>>;
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 struct ServiceConfig {
-    ws_service_url:  String,
+    ws_service_url:   String,
     user_service_url: String,
+    internal_secret:  String,
 }
 
 #[derive(Deserialize)]
@@ -60,7 +61,7 @@ async fn ws_ingest(
     };
 
     if let Some(amount) = bet_amount {
-        if !deduct_coins(&client, &cfg.user_service_url, body.user_id, amount).await {
+        if !deduct_coins(&client, &cfg.user_service_url, body.user_id, amount, &cfg.internal_secret).await {
             dispatch(&client, &cfg.ws_service_url, vec![body.user_id], serde_json::json!({
                 "kind": "game.error",
                 "payload": { "message": "Solde insuffisant" }
@@ -82,7 +83,7 @@ async fn ws_ingest(
             .map(|k| k == "game.error")
             .unwrap_or(false);
         if rejected {
-            refund_coins(&client, &cfg.user_service_url, body.user_id, amount).await;
+            refund_coins(&client, &cfg.user_service_url, body.user_id, amount, &cfg.internal_secret).await;
         }
     }
 
@@ -112,10 +113,12 @@ async fn ws_ingest(
 
     // Update coin balances for winners after a round
     for (uid, delta) in result.coin_updates {
-        let c2  = client.clone();
-        let uu  = cfg.user_service_url.clone();
+        let c2     = client.clone();
+        let uu     = cfg.user_service_url.clone();
+        let secret = cfg.internal_secret.clone();
         actix_web::rt::spawn(async move {
             let _ = c2.post(format!("{}/auth/internal/coins", uu))
+                .header("X-Internal-Secret", secret)
                 .json(&serde_json::json!({ "user_id": uid as i32, "delta": delta }))
                 .send()
                 .await;
@@ -130,9 +133,16 @@ async fn ws_ingest(
     HttpResponse::Accepted().finish()
 }
 
-async fn deduct_coins(client: &reqwest::Client, user_url: &str, user_id: u64, amount: u64) -> bool {
+async fn deduct_coins(
+    client: &reqwest::Client,
+    user_url: &str,
+    user_id: u64,
+    amount: u64,
+    secret: &str,
+) -> bool {
     match client
         .post(format!("{}/auth/internal/coins", user_url))
+        .header("X-Internal-Secret", secret)
         .json(&serde_json::json!({ "user_id": user_id as i32, "delta": -(amount as i64) }))
         .send()
         .await
@@ -142,9 +152,16 @@ async fn deduct_coins(client: &reqwest::Client, user_url: &str, user_id: u64, am
     }
 }
 
-async fn refund_coins(client: &reqwest::Client, user_url: &str, user_id: u64, amount: u64) {
+async fn refund_coins(
+    client: &reqwest::Client,
+    user_url: &str,
+    user_id: u64,
+    amount: u64,
+    secret: &str,
+) {
     let _ = client
         .post(format!("{}/auth/internal/coins", user_url))
+        .header("X-Internal-Secret", secret)
         .json(&serde_json::json!({ "user_id": user_id as i32, "delta": amount as i64 }))
         .send()
         .await;
@@ -213,6 +230,8 @@ async fn main() -> std::io::Result<()> {
             .unwrap_or_else(|_| "http://ws-service:8082".to_string()),
         user_service_url: std::env::var("USER_SERVICE_URL")
             .unwrap_or_else(|_| "http://oauth:8081".to_string()),
+        internal_secret: std::env::var("INTERNAL_SECRET")
+            .unwrap_or_default(),
     });
 
     let http_client = reqwest::Client::builder()
