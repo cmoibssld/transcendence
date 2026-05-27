@@ -255,6 +255,8 @@ export default function GameBoard() {
   const [coins,        setCoins]        = useState(null)
   const [bettingTimer, setBettingTimer] = useState(null)
   const [turnTimer,    setTurnTimer]    = useState(null)
+  const [skippedThisRound, setSkippedThisRound] = useState(false)
+  const skippedRef            = useRef(false)
   // Reveal state: null = idle, { cards, flipping } = animating
   const [revealSeq, setRevealSeq] = useState(null)
 
@@ -304,6 +306,7 @@ export default function GameBoard() {
 
     setJoined(false); setGameInfo(null); setSelfId(null)
     selfIdRef.current = null; setRoundEnd(null); setRevealSeq(null)
+    skippedRef.current = false; setSkippedThisRound(false)
     clearRevealTimers()
     setStatus(`Connexion à la table ${tableId}…`)
 
@@ -332,6 +335,12 @@ export default function GameBoard() {
       if (kind === "game.state") {
         setGameInfo(payload)
         setJoined(true)
+        // New round: server re-adds us to pending_bets → clear skip flag
+        const selfNum = selfIdRef.current !== null ? Number(selfIdRef.current) : null
+        if (selfNum !== null && (payload.pending_bets ?? []).some(p => Number(p) === selfNum)) {
+            skippedRef.current = false
+            setSkippedThisRound(false)
+        }
         if (payload.phase === "Playing") {
           setStatus(`Table ${payload.table_id} — en cours`)
         } else {
@@ -401,17 +410,19 @@ export default function GameBoard() {
 
         revealTimers.current.push(setTimeout(() => {
           setRevealSeq(null)
-          setRoundEnd({
-            dealerPoints:    dealerPts,
-            dealerBlackjack: result.dealer_blackjack ?? false,
-            allWinners:      [...Array.from(bjWinnersSet), ...Array.from(winnersSet)],
-            losers:          Array.from(losersSet),
-            outcomeClass,
-            isBlackjack,
-            isPush,
-            myPoints,
-            coinDelta,
-          })
+          if (!skippedRef.current) {
+            setRoundEnd({
+              dealerPoints:    dealerPts,
+              dealerBlackjack: result.dealer_blackjack ?? false,
+              allWinners:      [...Array.from(bjWinnersSet), ...Array.from(winnersSet)],
+              losers:          Array.from(losersSet),
+              outcomeClass,
+              isBlackjack,
+              isPush,
+              myPoints,
+              coinDelta,
+            })
+          }
           setStatus("Fin de manche")
           fetchCoins()
           fetch(`${GAME_URL}/tables`).then(r => r.ok ? r.json() : []).then(setTables).catch(() => {})
@@ -488,17 +499,20 @@ export default function GameBoard() {
   useEffect(() => {
     if (!joined || phase !== "Betting" || !selfPendingBet) { setBettingTimer(null); return }
     setBettingTimer(BET_TIMER_MAX)
+    let t = BET_TIMER_MAX
     const id = setInterval(() => {
-      setBettingTimer(t => {
-        if (t === null || t <= 1) {
-          const ws = wsRef.current
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ kind: "game.bet", payload: { amount: 1 } }))
-          }
-          return null
+        t -= 1
+        setBettingTimer(t)
+        if (t <= 0) {
+            clearInterval(id)
+            setBettingTimer(null)
+            const ws = wsRef.current
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ kind: "game.skip", payload: {} }))
+            }
+            skippedRef.current = true
+            setSkippedThisRound(true)
         }
-        return t - 1
-      })
     }, 1000)
     return () => clearInterval(id)
   }, [joined, phase, selfPendingBet])
@@ -673,12 +687,18 @@ export default function GameBoard() {
 
         {/* ── actions / betting ───────────────────────────────────────── */}
         {joined && phase === "Betting" ? (
-          <BettingPanel
-            coins={coins ?? 0}
-            selfPendingBet={selfPendingBet}
-            onBet={handleBet}
-            timer={bettingTimer}
-          />
+            skippedThisRound ? (
+                <div className="bet-panel bet-panel--waiting">
+                    <span className="bet-panel__msg">Vous avez passé cette manche — vous regardez</span>
+                </div>
+            ) : (
+                <BettingPanel
+                    coins={coins ?? 0}
+                    selfPendingBet={selfPendingBet}
+                    onBet={handleBet}
+                    timer={bettingTimer}
+                />
+            )
         ) : (
           <div className="gb-actions">
             {isMyTurn && turnTimer !== null && (
