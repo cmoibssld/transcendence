@@ -231,7 +231,10 @@ async fn main() -> std::io::Result<()> {
         user_service_url: std::env::var("USER_SERVICE_URL")
             .unwrap_or_else(|_| "http://oauth:8081".to_string()),
         internal_secret: std::env::var("INTERNAL_SECRET")
-            .unwrap_or_default(),
+            .unwrap_or_else(|_| {
+                log::warn!("INTERNAL_SECRET not set — coin updates will be rejected by auth service");
+                String::new()
+            }),
     });
 
     let http_client = reqwest::Client::builder()

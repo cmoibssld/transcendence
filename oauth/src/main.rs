@@ -634,21 +634,38 @@ struct UpdateCoinsRequest {
     delta: i64,
 }
 
+fn secrets_equal(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn check_internal_secret_with(req: &HttpRequest, secret: &str) -> Option<HttpResponse> {
+    let provided = req.headers()
+        .get("X-Internal-Secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !secrets_equal(provided, secret) {
+        return Some(HttpResponse::Unauthorized()
+            .json(serde_json::json!({"error": "unauthorized"})));
+    }
+    None
+}
+
 fn check_internal_secret(req: &HttpRequest) -> Option<HttpResponse> {
     let secret = match env::var("INTERNAL_SECRET") {
         Ok(s) if !s.is_empty() => s,
         _ => return Some(HttpResponse::InternalServerError()
             .json(serde_json::json!({"error": "server misconfigured"}))),
     };
-    let provided = req.headers()
-        .get("X-Internal-Secret")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if provided != secret {
-        return Some(HttpResponse::Unauthorized()
-            .json(serde_json::json!({"error": "unauthorized"})));
-    }
-    None
+    check_internal_secret_with(req, &secret)
 }
 
 // Internal endpoint called by game-engine — authenticated with shared secret
@@ -837,32 +854,26 @@ mod tests {
         assert_eq!(resp.status(), 400);
     }
 
-    #[actix_web::test]
-    async fn test_internal_secret_rejects_missing_header() {
-        std::env::set_var("INTERNAL_SECRET", "supersecret");
+    #[::core::prelude::v1::test]
+    fn test_internal_secret_rejects_missing_header() {
         let req = actix_web::test::TestRequest::default().to_http_request();
-        assert!(check_internal_secret(&req).is_some());
-        std::env::remove_var("INTERNAL_SECRET");
+        assert!(check_internal_secret_with(&req, "supersecret").is_some());
     }
 
-    #[actix_web::test]
-    async fn test_internal_secret_rejects_wrong_value() {
-        std::env::set_var("INTERNAL_SECRET", "supersecret");
+    #[::core::prelude::v1::test]
+    fn test_internal_secret_rejects_wrong_value() {
         let req = actix_web::test::TestRequest::default()
             .insert_header(("X-Internal-Secret", "wrongvalue"))
             .to_http_request();
-        assert!(check_internal_secret(&req).is_some());
-        std::env::remove_var("INTERNAL_SECRET");
+        assert!(check_internal_secret_with(&req, "supersecret").is_some());
     }
 
-    #[actix_web::test]
-    async fn test_internal_secret_accepts_correct_value() {
-        std::env::set_var("INTERNAL_SECRET", "supersecret");
+    #[::core::prelude::v1::test]
+    fn test_internal_secret_accepts_correct_value() {
         let req = actix_web::test::TestRequest::default()
             .insert_header(("X-Internal-Secret", "supersecret"))
             .to_http_request();
-        assert!(check_internal_secret(&req).is_none());
-        std::env::remove_var("INTERNAL_SECRET");
+        assert!(check_internal_secret_with(&req, "supersecret").is_none());
     }
 
     #[actix_web::test]
