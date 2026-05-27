@@ -24,6 +24,7 @@ mod schema;
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 type HmacSha256 = Hmac<Sha256>;
 type CodeStore = Mutex<HashMap<String, (AuthResponse, Instant)>>;
+type LoginAttempts = Mutex<HashMap<String, (u32, Instant)>>;
 
 #[derive(Deserialize)]
 struct ExchangeQuery {
@@ -294,11 +295,38 @@ async fn register(pool: web::Data<DbPool>, body: web::Json<RegisterRequest>) -> 
     }
 }
 
+fn check_rate_limit(attempts: &web::Data<LoginAttempts>, ip: &str) -> bool {
+    let mut map = attempts.lock().unwrap();
+    let now = Instant::now();
+    let entry = map.entry(ip.to_string()).or_insert((0, now));
+    if entry.1.elapsed() > std::time::Duration::from_secs(60) {
+        *entry = (1, now);
+        return true;
+    }
+    if entry.0 >= 5 {
+        return false;
+    }
+    entry.0 += 1;
+    true
+}
+
 async fn login(
     pool: web::Data<DbPool>,
     req: HttpRequest,
     body: web::Json<LocalLoginRequest>,
+    attempts: web::Data<LoginAttempts>,
 ) -> impl Responder {
+    let ip = req
+        .connection_info()
+        .realip_remote_addr()
+        .unwrap_or("unknown")
+        .to_string();
+
+    if !check_rate_limit(&attempts, &ip) {
+        return HttpResponse::TooManyRequests()
+            .json(serde_json::json!({"error": "Trop de tentatives, réessayez dans une minute"}));
+    }
+
     let login_data = body.into_inner();
 
     let pool_clone = pool.clone();
@@ -800,11 +828,13 @@ async fn main() -> std::io::Result<()> {
     let session_key = env::var("SESSION_KEY").expect("SESSION_KEY must be set");
     let secret_key = Key::from(session_key.as_bytes());
     let code_store: web::Data<CodeStore> = web::Data::new(Mutex::new(HashMap::new()));
+    let login_attempts: web::Data<LoginAttempts> = web::Data::new(Mutex::new(HashMap::new()));
 
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .app_data(code_store.clone())
+            .app_data(login_attempts.clone())
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
                     .cookie_secure(env::var("COOKIE_SECURE").ok().as_deref() != Some("false"))
@@ -969,5 +999,31 @@ mod tests {
     #[::core::prelude::v1::test]
     fn test_lookup_user_nonempty_username_passes() {
         assert!(validate_lookup_username("alice").is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn test_rate_limit_allows_first_5() {
+        let data: web::Data<LoginAttempts> = web::Data::new(Mutex::new(HashMap::new()));
+        for _ in 0..5 {
+            assert!(check_rate_limit(&data, "1.2.3.4"), "should be allowed");
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn test_rate_limit_blocks_6th() {
+        let data: web::Data<LoginAttempts> = web::Data::new(Mutex::new(HashMap::new()));
+        for _ in 0..5 {
+            check_rate_limit(&data, "1.2.3.4");
+        }
+        assert!(!check_rate_limit(&data, "1.2.3.4"), "6th attempt should be blocked");
+    }
+
+    #[::core::prelude::v1::test]
+    fn test_rate_limit_independent_ips() {
+        let data: web::Data<LoginAttempts> = web::Data::new(Mutex::new(HashMap::new()));
+        for _ in 0..5 {
+            check_rate_limit(&data, "1.1.1.1");
+        }
+        assert!(check_rate_limit(&data, "2.2.2.2"), "different IP should be allowed");
     }
 }
