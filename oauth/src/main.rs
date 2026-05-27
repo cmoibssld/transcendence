@@ -104,6 +104,18 @@ struct PresenceRequest {
     user_id: u64,
 }
 
+#[derive(Deserialize)]
+struct UserLookupQuery {
+    username: String,
+}
+
+#[derive(Serialize)]
+struct UserLookupResponse {
+    id: i32,
+    username: String,
+    avatar_url: Option<String>,
+}
+
 fn generate_access_token(user_id: u64, username: String) -> Result<String, actix_web::Error> {
     let expiration = Utc::now()
         .checked_add_signed(Duration::minutes(15))
@@ -707,6 +719,47 @@ async fn presence_offline(body: web::Json<PresenceRequest>) -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
+fn validate_lookup_username(username: &str) -> Option<HttpResponse> {
+    if username.trim().is_empty() {
+        return Some(HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "username required"})));
+    }
+    None
+}
+
+async fn lookup_user(
+    query: web::Query<UserLookupQuery>,
+    pool: web::Data<DbPool>,
+) -> impl Responder {
+    let username = query.username.trim().to_string();
+    if let Some(err) = validate_lookup_username(&username) {
+        return err;
+    }
+
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        let mut conn = pool.get().expect("DB pool");
+        u::users
+            .filter(u::username.eq(&username))
+            .select((u::id, u::username, u::avatar))
+            .first::<(i32, String, String)>(&mut conn)
+    })
+    .await;
+
+    match result {
+        Ok(Ok((id, username, avatar))) => {
+            let avatar_url = if avatar.is_empty() { None } else { Some(avatar) };
+            HttpResponse::Ok().json(UserLookupResponse { id, username, avatar_url })
+        }
+        Ok(Err(diesel::result::Error::NotFound)) => {
+            HttpResponse::NotFound()
+                .json(serde_json::json!({"error": "user not found"}))
+        }
+        _ => HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": "db error"})),
+    }
+}
+
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
@@ -783,6 +836,7 @@ async fn main() -> std::io::Result<()> {
             .route("/auth/presence/offline", web::post().to(presence_offline))
             .route("/auth/balance", web::get().to(get_balance))
             .route("/auth/profile", web::get().to(get_profile))
+            .route("/auth/users", web::get().to(lookup_user))
             .route("/auth/internal/coins", web::post().to(update_coins))
     })
     .bind("0.0.0.0:8081")?
@@ -904,5 +958,16 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 400); // expired codes return 400 after eviction
+    }
+
+    #[::core::prelude::v1::test]
+    fn test_lookup_user_empty_username_rejected() {
+        assert!(validate_lookup_username("").is_some());
+        assert!(validate_lookup_username("   ").is_some());
+    }
+
+    #[::core::prelude::v1::test]
+    fn test_lookup_user_nonempty_username_passes() {
+        assert!(validate_lookup_username("alice").is_none());
     }
 }
