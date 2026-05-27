@@ -500,6 +500,7 @@ export default function GameBoard() {
     if (!joined || phase !== "Betting" || !selfPendingBet) { setBettingTimer(null); return }
     setBettingTimer(BET_TIMER_MAX)
     let t = BET_TIMER_MAX
+    // cleanup (clearInterval) always runs before effect re-runs — local t is safe here
     const id = setInterval(() => {
         t -= 1
         setBettingTimer(t)
