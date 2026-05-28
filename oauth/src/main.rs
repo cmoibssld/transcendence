@@ -76,6 +76,17 @@ struct ProfileResponse {
     username: String,
     avatar_url: Option<String>,
     coins: i64,
+    bio: String,
+    provider: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateProfileRequest {
+    username: Option<String>,
+    avatar_url: Option<String>,
+    bio: Option<String>,
+    current_password: Option<String>,
+    new_password: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -279,6 +290,7 @@ async fn register(pool: web::Data<DbPool>, body: web::Json<RegisterRequest>) -> 
             password_hash: &hashed_password,
             money: 1000,
             avatar: "",
+            provider: "local",
         };
         diesel::insert_into(users_dsl::users)
             .values(&new_user)
@@ -347,6 +359,11 @@ async fn login(
         }
     };
 
+    if user.provider != "local" {
+        return HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "Utilisez GitHub pour vous connecter"}));
+    }
+
     let is_valid = verify(&login_data.password, &user.password_hash).unwrap_or(false);
 
     if !is_valid {
@@ -363,7 +380,6 @@ async fn login(
 
 async fn github_login(session: Session) -> Result<HttpResponse> {
     let client_id = env::var("GITHUB_ID").expect("GITHUB_ID must be set");
-    let redirect_uri = env::var("OAUTH_REDIRECT_URI").expect("OAUTH_REDIRECT_URI must be set");
     let scope = "read:user";
     let state: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -376,8 +392,8 @@ async fn github_login(session: Session) -> Result<HttpResponse> {
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let auth_url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope={}&state={}",
-        client_id, redirect_uri, scope, state
+        "https://github.com/login/oauth/authorize?client_id={}&scope={}&state={}",
+        client_id, scope, state
     );
 
     Ok(HttpResponse::Found()
@@ -460,6 +476,7 @@ async fn github_callback(
             password_hash: "",
             money: 1000,
             avatar: &avatar_for_db,
+            provider: "github",
         };
         diesel::insert_into(users_dsl::users)
             .values(&new_user)
@@ -609,16 +626,147 @@ async fn get_profile(
         let mut conn = pool.get().expect("DB pool");
         u::users
             .filter(u::id.eq(user_id))
-            .select((u::username, u::avatar, u::money))
-            .first::<(String, String, i64)>(&mut conn)
+            .select((u::username, u::avatar, u::money, u::bio, u::provider))
+            .first::<(String, String, i64, String, String)>(&mut conn)
     })
     .await;
 
     match result {
-        Ok(Ok((username, avatar, coins))) => {
+        Ok(Ok((username, avatar, coins, bio, provider))) => {
             let avatar_url = if avatar.is_empty() { None } else { Some(avatar) };
-            HttpResponse::Ok().json(ProfileResponse { username, avatar_url, coins })
+            HttpResponse::Ok().json(ProfileResponse { username, avatar_url, coins, bio, provider })
         }
+        _ => HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+async fn patch_profile(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    body: web::Json<UpdateProfileRequest>,
+) -> impl Responder {
+    let user_id = match extract_user_id(&req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized()
+            .json(serde_json::json!({"error": "unauthorized"})),
+    };
+
+    let data = body.into_inner();
+
+    // Input validation
+    if let Some(ref u) = data.username {
+        let trimmed = u.trim();
+        if trimmed.is_empty() || trimmed.len() > 50 {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "username must be 1-50 characters"}));
+        }
+    }
+    if let Some(ref b) = data.bio {
+        if b.len() > 300 {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "bio must be 300 characters or fewer"}));
+        }
+    }
+
+    // Password change: verify current password first
+    let new_password_hash: Option<String> = if data.new_password.is_some() {
+        let cur_pass = match data.current_password.as_deref() {
+            Some(p) if !p.is_empty() => p.to_string(),
+            _ => return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "current_password required to change password"})),
+        };
+        let new_pass = data.new_password.as_deref().unwrap_or("").to_string();
+        if new_pass.is_empty() {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "new_password must not be empty"}));
+        }
+
+        let pool_clone = pool.clone();
+        let fetch = web::block(move || {
+            use crate::schema::users::dsl as u;
+            let mut conn = pool_clone.get().expect("DB pool");
+            u::users
+                .filter(u::id.eq(user_id))
+                .select((u::password_hash, u::provider))
+                .first::<(String, String)>(&mut conn)
+        })
+        .await;
+
+        let (current_hash, provider) = match fetch {
+            Ok(Ok(row)) => row,
+            _ => return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "db error"})),
+        };
+
+        if provider != "local" {
+            return HttpResponse::Forbidden()
+                .json(serde_json::json!({"error": "cannot change password for OAuth accounts"}));
+        }
+        if !bcrypt::verify(&cur_pass, &current_hash).unwrap_or(false) {
+            return HttpResponse::Unauthorized()
+                .json(serde_json::json!({"error": "wrong current password"}));
+        }
+        match bcrypt::hash(&new_pass, DEFAULT_COST) {
+            Ok(h) => Some(h),
+            Err(_) => return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "password hash error"})),
+        }
+    } else {
+        None
+    };
+
+    let username = data.username.map(|u| u.trim().to_string());
+    let avatar = data.avatar_url;
+    let bio = data.bio;
+
+    if username.is_none() && avatar.is_none() && bio.is_none() && new_password_hash.is_none() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "nothing to update"}));
+    }
+
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        let mut conn = pool.get().expect("DB pool");
+
+        if let Some(ref new_username) = username {
+            let exists: bool = diesel::select(diesel::dsl::exists(
+                u::users
+                    .filter(u::username.eq(new_username))
+                    .filter(u::id.ne(user_id)),
+            ))
+            .get_result(&mut conn)?;
+            if exists {
+                return Err(diesel::result::Error::RollbackTransaction);
+            }
+        }
+
+        let changeset = models::UserProfileChangeset {
+            username,
+            avatar,
+            bio,
+            password_hash: new_password_hash,
+            updated_at: Utc::now(),
+        };
+
+        diesel::update(u::users.filter(u::id.eq(user_id)))
+            .set(&changeset)
+            .execute(&mut conn)?;
+
+        u::users
+            .filter(u::id.eq(user_id))
+            .select((u::username, u::avatar, u::money, u::bio, u::provider))
+            .first::<(String, String, i64, String, String)>(&mut conn)
+    })
+    .await;
+
+    match result {
+        Ok(Ok((username, avatar, coins, bio, provider))) => {
+            let avatar_url = if avatar.is_empty() { None } else { Some(avatar) };
+            HttpResponse::Ok().json(ProfileResponse { username, avatar_url, coins, bio, provider })
+        }
+        Ok(Err(diesel::result::Error::RollbackTransaction)) => HttpResponse::Conflict()
+            .json(serde_json::json!({"error": "username already taken"})),
         _ => HttpResponse::InternalServerError()
             .json(serde_json::json!({"error": "db error"})),
     }
@@ -664,6 +812,92 @@ async fn get_balance(
 
     match result {
         Ok(Ok(coins)) => HttpResponse::Ok().json(serde_json::json!({ "coins": coins })),
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+#[derive(Deserialize)]
+struct BatchUsersRequest {
+    user_ids: Vec<i32>,
+}
+
+#[derive(Deserialize)]
+struct FriendCheckRequest {
+    requester_id:    i32,
+    target_username: String,
+}
+
+async fn internal_friend_check(
+    req:  HttpRequest,
+    pool: web::Data<DbPool>,
+    body: web::Json<FriendCheckRequest>,
+) -> impl Responder {
+    if let Some(err) = check_internal_secret(&req) {
+        return err;
+    }
+    let FriendCheckRequest { requester_id, target_username } = body.into_inner();
+
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        use crate::schema::friendships::dsl as f;
+        let mut conn = pool.get().expect("DB pool");
+
+        let target_id: i32 = u::users
+            .filter(u::username.eq(&target_username))
+            .select(u::id)
+            .first(&mut conn)?;
+
+        let are_friends: bool = diesel::select(diesel::dsl::exists(
+            f::friendships.filter(
+                f::status.eq(models::FriendshipStatus::Accepted).and(
+                    f::requester_id.eq(requester_id).and(f::addressee_id.eq(target_id))
+                    .or(f::requester_id.eq(target_id).and(f::addressee_id.eq(requester_id)))
+                )
+            )
+        ))
+        .get_result(&mut conn)?;
+
+        Ok::<(i32, bool), diesel::result::Error>((target_id, are_friends))
+    })
+    .await;
+
+    match result {
+        Ok(Ok((target_id, are_friends))) =>
+            HttpResponse::Ok().json(serde_json::json!({ "target_id": target_id, "are_friends": are_friends })),
+        Ok(Err(diesel::result::Error::NotFound)) =>
+            HttpResponse::NotFound().json(serde_json::json!({"error": "user not found"})),
+        _ =>
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+async fn internal_users(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    body: web::Json<BatchUsersRequest>,
+) -> impl Responder {
+    if let Some(err) = check_internal_secret(&req) {
+        return err;
+    }
+    let ids = body.into_inner().user_ids;
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        let mut conn = pool.get().expect("DB pool");
+        u::users
+            .filter(u::id.eq_any(&ids))
+            .select((u::id, u::username, u::avatar))
+            .load::<(i32, String, String)>(&mut conn)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(rows)) => {
+            let entries: Vec<serde_json::Value> = rows.into_iter().map(|(id, username, avatar)| {
+                let avatar_url = if avatar.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(avatar) };
+                serde_json::json!({ "id": id, "username": username, "avatar_url": avatar_url })
+            }).collect();
+            HttpResponse::Ok().json(entries)
+        }
         _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
     }
 }
@@ -788,6 +1022,251 @@ async fn lookup_user(
     }
 }
 
+fn extract_user_id(req: &HttpRequest) -> Option<i32> {
+    let token = req
+        .headers()
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_owned))?;
+
+    let jwt_secret = env::var("JWT_SECRET").ok()?;
+    let data = jsonwebtoken::decode::<ClaimsJWT>(
+        &token,
+        &DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &Validation::default(),
+    )
+    .ok()?;
+    Some(data.claims.sub as i32)
+}
+
+// ── Friends endpoints ─────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct FriendEntry {
+    id: i32,
+    username: String,
+    avatar_url: Option<String>,
+}
+
+async fn friend_request(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    query: web::Query<UserLookupQuery>,
+) -> impl Responder {
+    let me = match extract_user_id(&req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+    };
+
+    let target_username = query.into_inner().username;
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        use crate::schema::friendships::dsl as f;
+        let mut conn = pool.get().expect("DB pool");
+
+        let target: i32 = u::users
+            .filter(u::username.eq(&target_username))
+            .select(u::id)
+            .first(&mut conn)?;
+
+        if target == me {
+            return Err(diesel::result::Error::RollbackTransaction);
+        }
+
+        diesel::insert_into(f::friendships)
+            .values(models::NewFriendship { requester_id: me, addressee_id: target })
+            .execute(&mut conn)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => HttpResponse::Created().json(serde_json::json!({"message": "friend request sent"})),
+        Ok(Err(diesel::result::Error::NotFound)) =>
+            HttpResponse::NotFound().json(serde_json::json!({"error": "user not found"})),
+        Ok(Err(diesel::result::Error::RollbackTransaction)) =>
+            HttpResponse::BadRequest().json(serde_json::json!({"error": "cannot add yourself"})),
+        Ok(Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, _))) =>
+            HttpResponse::Conflict().json(serde_json::json!({"error": "request already exists"})),
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+async fn friend_accept(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    query: web::Query<UserLookupQuery>,
+) -> impl Responder {
+    let me = match extract_user_id(&req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+    };
+
+    let target_username = query.into_inner().username;
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        use crate::schema::friendships::dsl as f;
+        let mut conn = pool.get().expect("DB pool");
+
+        let requester: i32 = u::users
+            .filter(u::username.eq(&target_username))
+            .select(u::id)
+            .first(&mut conn)?;
+
+        let updated = diesel::update(
+            f::friendships
+                .filter(f::requester_id.eq(requester))
+                .filter(f::addressee_id.eq(me))
+                .filter(f::status.eq(models::FriendshipStatus::Pending)),
+        )
+        .set(f::status.eq(models::FriendshipStatus::Accepted))
+        .execute(&mut conn)?;
+
+        if updated == 0 {
+            return Err(diesel::result::Error::NotFound);
+        }
+        Ok(())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => HttpResponse::Ok().json(serde_json::json!({"message": "friend request accepted"})),
+        Ok(Err(diesel::result::Error::NotFound)) =>
+            HttpResponse::NotFound().json(serde_json::json!({"error": "no pending request found"})),
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+async fn friend_decline(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    query: web::Query<UserLookupQuery>,
+) -> impl Responder {
+    let me = match extract_user_id(&req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+    };
+
+    let target_username = query.into_inner().username;
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        use crate::schema::friendships::dsl as f;
+        let mut conn = pool.get().expect("DB pool");
+
+        let other: i32 = u::users
+            .filter(u::username.eq(&target_username))
+            .select(u::id)
+            .first(&mut conn)?;
+
+        // Remove in any direction (decline incoming, cancel outgoing, unfriend)
+        diesel::delete(
+            f::friendships.filter(
+                f::requester_id.eq(me).and(f::addressee_id.eq(other))
+                .or(f::requester_id.eq(other).and(f::addressee_id.eq(me)))
+            ),
+        )
+        .execute(&mut conn)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => HttpResponse::Ok().json(serde_json::json!({"message": "removed"})),
+        Ok(Err(diesel::result::Error::NotFound)) =>
+            HttpResponse::NotFound().json(serde_json::json!({"error": "user not found"})),
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+async fn list_friends(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+) -> impl Responder {
+    let me = match extract_user_id(&req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+    };
+
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        use crate::schema::friendships::dsl as f;
+        let mut conn = pool.get().expect("DB pool");
+
+        // Friends where I am requester
+        let sent: Vec<i32> = f::friendships
+            .filter(f::requester_id.eq(me).and(f::status.eq(models::FriendshipStatus::Accepted)))
+            .select(f::addressee_id)
+            .load(&mut conn)?;
+
+        // Friends where I am addressee
+        let received: Vec<i32> = f::friendships
+            .filter(f::addressee_id.eq(me).and(f::status.eq(models::FriendshipStatus::Accepted)))
+            .select(f::requester_id)
+            .load(&mut conn)?;
+
+        let friend_ids: Vec<i32> = sent.into_iter().chain(received).collect();
+
+        let friends: Vec<(i32, String, String)> = u::users
+            .filter(u::id.eq_any(&friend_ids))
+            .select((u::id, u::username, u::avatar))
+            .load(&mut conn)?;
+
+        Ok::<Vec<(i32, String, String)>, diesel::result::Error>(friends)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(rows)) => {
+            let entries: Vec<FriendEntry> = rows.into_iter().map(|(id, username, avatar)| FriendEntry {
+                id,
+                username,
+                avatar_url: if avatar.is_empty() { None } else { Some(avatar) },
+            }).collect();
+            HttpResponse::Ok().json(entries)
+        }
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+async fn list_pending(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+) -> impl Responder {
+    let me = match extract_user_id(&req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+    };
+
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        use crate::schema::friendships::dsl as f;
+        let mut conn = pool.get().expect("DB pool");
+
+        let requester_ids: Vec<i32> = f::friendships
+            .filter(f::addressee_id.eq(me).and(f::status.eq(models::FriendshipStatus::Pending)))
+            .select(f::requester_id)
+            .load(&mut conn)?;
+
+        let requesters: Vec<(i32, String, String)> = u::users
+            .filter(u::id.eq_any(&requester_ids))
+            .select((u::id, u::username, u::avatar))
+            .load(&mut conn)?;
+
+        Ok::<Vec<(i32, String, String)>, diesel::result::Error>(requesters)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(rows)) => {
+            let entries: Vec<FriendEntry> = rows.into_iter().map(|(id, username, avatar)| FriendEntry {
+                id,
+                username,
+                avatar_url: if avatar.is_empty() { None } else { Some(avatar) },
+            }).collect();
+            HttpResponse::Ok().json(entries)
+        }
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
@@ -846,7 +1325,7 @@ async fn main() -> std::io::Result<()> {
                     .allowed_origin("http://localhost:3000")
                     .allowed_origin("http://localhost:5173")
                     .allowed_origin("https://localhost:8443")
-                    .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+                    .allowed_methods(vec!["GET", "POST", "PATCH", "OPTIONS"])
                     .allowed_headers(vec![
                         header::CONTENT_TYPE,
                         header::AUTHORIZATION,
@@ -866,8 +1345,16 @@ async fn main() -> std::io::Result<()> {
             .route("/auth/presence/offline", web::post().to(presence_offline))
             .route("/auth/balance", web::get().to(get_balance))
             .route("/auth/profile", web::get().to(get_profile))
+            .route("/auth/profile", web::patch().to(patch_profile))
             .route("/auth/users", web::get().to(lookup_user))
-            .route("/auth/internal/coins", web::post().to(update_coins))
+            .route("/auth/friends", web::get().to(list_friends))
+            .route("/auth/friends/pending", web::get().to(list_pending))
+            .route("/auth/friends/request", web::post().to(friend_request))
+            .route("/auth/friends/accept", web::post().to(friend_accept))
+            .route("/auth/friends/decline", web::post().to(friend_decline))
+            .route("/auth/internal/coins",        web::post().to(update_coins))
+            .route("/auth/internal/users",        web::post().to(internal_users))
+            .route("/auth/internal/friend-check", web::post().to(internal_friend_check))
     })
     .bind("0.0.0.0:8081")?
     .run()

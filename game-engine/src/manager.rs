@@ -25,11 +25,19 @@ pub struct IngestResult {
     pub coin_updates:   Vec<(u64, i64)>,  // (user_id, delta)
 }
 
+pub struct PlayerOutcome {
+    pub user_id: u64,
+    pub bet:     u64,
+    pub outcome: &'static str,  // "win" | "blackjack" | "push" | "loss"
+    pub payout:  u64,
+}
+
 pub struct HistoryData {
-    pub table_id:     i32,
-    pub round_number: i32,
-    pub dealer_points: i32,
-    pub result_json:  String,
+    pub table_id:       i32,
+    pub round_number:   i32,
+    pub dealer_points:  i32,
+    pub result_json:    String,
+    pub player_outcomes: Vec<PlayerOutcome>,
 }
 
 fn random_unique_key(existing: &HashMap<u32, u64>) -> u32 {
@@ -42,9 +50,9 @@ fn random_unique_key(existing: &HashMap<u32, u64>) -> u32 {
 
 impl GameManager {
     fn new(table_id: u32) -> Self {
-        let mut info = GameInfo::new(table_id);
-        let mut deck = Deck::new(54);
-        info.dealer_first_card(&mut deck);
+        let info = GameInfo::new(table_id);
+        let deck = Deck::new(54);
+        // Dealer draws cards in start_playing(), not at table creation
         GameManager { players: HashMap::with_capacity(3), info, deck, open: true, round_nb: 1 }
     }
 
@@ -121,31 +129,51 @@ impl GameManager {
                     }
                 });
 
-                let history = HistoryData {
-                    table_id,
-                    round_number: round_nb,
-                    dealer_points: dealer_pts as i32,
-                    result_json: round_end.to_string(),
-                };
-
                 // Coin returns (bet already deducted at bet time):
                 //   blackjack 3:2 → bet * 5/2   (bet back + 1.5x profit)
                 //   normal win    → bet * 2      (bet back + 1x profit)
                 //   push / tie    → bet          (bet back, no profit)
                 //   loss          → 0            (already deducted)
                 let mut coin_deltas: Vec<(u32, u64)> = Vec::new();
+                let mut player_outcomes: Vec<PlayerOutcome> = Vec::new();
+
                 for pid in &bj_winners {
-                    let bet = bets_snapshot.get(pid).copied().unwrap_or(0);
-                    coin_deltas.push((*pid, (bet * 5) / 2));
+                    let bet    = bets_snapshot.get(pid).copied().unwrap_or(0);
+                    let payout = (bet * 5) / 2;
+                    coin_deltas.push((*pid, payout));
+                    if let Some(&uid) = self.players.get(pid) {
+                        player_outcomes.push(PlayerOutcome { user_id: uid, bet, outcome: "blackjack", payout });
+                    }
                 }
                 for pid in &winners {
-                    let bet = bets_snapshot.get(pid).copied().unwrap_or(0);
-                    coin_deltas.push((*pid, bet * 2));
+                    let bet    = bets_snapshot.get(pid).copied().unwrap_or(0);
+                    let payout = bet * 2;
+                    coin_deltas.push((*pid, payout));
+                    if let Some(&uid) = self.players.get(pid) {
+                        player_outcomes.push(PlayerOutcome { user_id: uid, bet, outcome: "win", payout });
+                    }
                 }
                 for pid in &pushes {
                     let bet = bets_snapshot.get(pid).copied().unwrap_or(0);
                     coin_deltas.push((*pid, bet));
+                    if let Some(&uid) = self.players.get(pid) {
+                        player_outcomes.push(PlayerOutcome { user_id: uid, bet, outcome: "push", payout: bet });
+                    }
                 }
+                for pid in &losers {
+                    let bet = bets_snapshot.get(pid).copied().unwrap_or(0);
+                    if let Some(&uid) = self.players.get(pid) {
+                        player_outcomes.push(PlayerOutcome { user_id: uid, bet, outcome: "loss", payout: 0 });
+                    }
+                }
+
+                let history = HistoryData {
+                    table_id,
+                    round_number: round_nb,
+                    dealer_points: dealer_pts as i32,
+                    result_json: round_end.to_string(),
+                    player_outcomes,
+                };
 
                 self.restart();
                 let new_state = serde_json::to_value(&self.info).unwrap_or_default();
@@ -209,14 +237,22 @@ impl GameData {
         serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string())
     }
 
+    pub fn get_player_bet(&self, user_id: u64) -> Option<u64> {
+        let &(table_id, player_id) = self.user_sessions.get(&user_id)?;
+        let table = self.tables.get(&table_id)?;
+        table.info.bets.get(&player_id).copied()
+    }
+
     pub fn handle_ingest(&mut self, user_id: u64, kind: &str, payload: &serde_json::Value) -> IngestResult {
         match kind {
-            "game.join"  => self.do_join(user_id, payload),
-            "game.bet"   => self.do_bet(user_id, payload),
-            "game.hit"   => self.do_hit(user_id),
-            "game.stay"  => self.do_stay(user_id),
-            "game.skip"  => self.do_skip(user_id),
-            "game.leave" => self.do_leave(user_id),
+            "game.join"       => self.do_join(user_id, payload),
+            "game.bet"        => self.do_bet(user_id, payload),
+            "game.hit"        => self.do_hit(user_id),
+            "game.stay"       => self.do_stay(user_id),
+            "game.skip"       => self.do_skip(user_id),
+            "game.leave"      => self.do_leave(user_id),
+            "game.double"     => self.do_double(user_id),
+            "game.disconnect" => self.do_disconnect(user_id),
             _ => IngestResult {
                 personal: Some(serde_json::json!({
                     "kind": "game.error", "payload": { "message": "unknown action" }
@@ -307,8 +343,8 @@ impl GameData {
 
             let all_done = table.info.place_bet(player_id, amount);
             if all_done {
-                // All players have bet — deal initial cards and start playing
-                table.info.start_playing();
+                // All players have bet — dealer draws, then deal initial cards
+                table.info.start_playing(&mut table.deck);
                 let ids: Vec<u32> = table.players.keys().cloned().collect();
                 for pid in ids {
                     table.info.deal_to_player(pid, &mut table.deck, 2);
@@ -361,9 +397,9 @@ impl GameData {
                 }
             }
             Some(1) => {
-                // All remaining players have bet — deal and start playing
+                // All remaining players have bet — dealer draws, then deal initial cards
                 // deal_to_player silently skips players removed from players_cards (the one who skipped)
-                table.info.start_playing();
+                table.info.start_playing(&mut table.deck);
                 let ids: Vec<u32> = table.players.keys().cloned().collect();
                 for pid in ids {
                     table.info.deal_to_player(pid, &mut table.deck, 2);
@@ -471,6 +507,158 @@ impl GameData {
         }).collect();
 
         IngestResult { personal: None, broadcast: Some(broadcast), post_broadcast, audience, history, coin_updates }
+    }
+
+    fn do_double(&mut self, user_id: u64) -> IngestResult {
+        let (table_id, player_id) = match self.user_sessions.get(&user_id) {
+            Some(&s) => s,
+            None => return IngestResult {
+                personal: Some(serde_json::json!({
+                    "kind": "game.error", "payload": { "message": "Not in a game" }
+                })),
+                broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
+            },
+        };
+
+        let table = match self.tables.get_mut(&table_id) {
+            Some(t) => t,
+            None => return IngestResult {
+                personal: None, broadcast: None, post_broadcast: None,
+                audience: vec![], history: None, coin_updates: vec![],
+            },
+        };
+
+        if table.info.double_down(player_id, &mut table.deck).is_none() {
+            return IngestResult {
+                personal: Some(serde_json::json!({
+                    "kind": "game.error",
+                    "payload": { "message": "Cannot double down: need exactly 2 cards on your turn" }
+                })),
+                broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
+            };
+        }
+
+        // Auto-stand: player draws 1 card and immediately ends their turn
+        let aud = table.audience();
+        let (ev, post, hist, raw_deltas) = table.stand(player_id);
+        let player_map: std::collections::HashMap<u32, u64> = table.players.clone();
+        let coin_updates: Vec<(u64, i64)> = raw_deltas.into_iter()
+            .filter_map(|(pid, payout)| Some((*player_map.get(&pid)?, payout as i64)))
+            .collect();
+
+        IngestResult {
+            personal: None,
+            broadcast: Some(ev),
+            post_broadcast: post,
+            audience: aud,
+            history: hist,
+            coin_updates,
+        }
+    }
+
+    fn do_disconnect(&mut self, user_id: u64) -> IngestResult {
+        let (table_id, player_id) = match self.user_sessions.remove(&user_id) {
+            Some(s) => s,
+            None => return IngestResult {
+                personal: None, broadcast: None, post_broadcast: None,
+                audience: vec![], history: None, coin_updates: vec![],
+            },
+        };
+
+        let table = match self.tables.get_mut(&table_id) {
+            Some(t) => t,
+            None => return IngestResult {
+                personal: None, broadcast: None, post_broadcast: None,
+                audience: vec![], history: None, coin_updates: vec![],
+            },
+        };
+
+        // Remove from the players map now so they won't be re-added on the next restart
+        table.players.remove(&player_id);
+        if table.players.len() < 3 { table.open = true; }
+
+        match table.info.phase.clone() {
+            Phase::Betting => {
+                if table.info.pending_bets.contains(&player_id) {
+                    // Player hasn't bet yet — treat as skip
+                    match table.info.skip_player(player_id) {
+                        Some(1) => {
+                            // All remaining players are ready — start the game
+                            table.info.start_playing(&mut table.deck);
+                            let ids: Vec<u32> = table.players.keys().cloned().collect();
+                            for pid in ids {
+                                table.info.deal_to_player(pid, &mut table.deck, 2);
+                            }
+                        }
+                        Some(2) | Some(_) if table.info.pending_bets.is_empty() && !table.info.has_active_players() => {
+                            // Everyone is gone — restart cleanly
+                            table.restart();
+                        }
+                        _ => {} // Some(0): others still pending, or None: already handled above
+                    }
+                } else {
+                    // Player already bet — remove them from the round; their bet is forfeited
+                    table.info.remove_player(player_id);
+                    if table.info.pending_bets.is_empty() {
+                        if table.info.has_active_players() {
+                            // Remaining players all have bets — start
+                            table.info.start_playing(&mut table.deck);
+                            let ids: Vec<u32> = table.players.keys().cloned().collect();
+                            for pid in ids {
+                                table.info.deal_to_player(pid, &mut table.deck, 2);
+                            }
+                        } else {
+                            table.restart();
+                        }
+                    }
+                }
+                let audience = table.audience();
+                let sv = serde_json::to_value(&table.info).unwrap_or_default();
+                IngestResult {
+                    personal: None,
+                    broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": sv })),
+                    post_broadcast: None, audience, history: None, coin_updates: vec![],
+                }
+            }
+
+            Phase::Playing => {
+                if table.info.is_active_player(player_id) {
+                    // Auto-stand on behalf of the disconnected player
+                    let aud = table.audience();
+                    let (ev, post, hist, raw_deltas) = table.stand(player_id);
+                    let player_map: std::collections::HashMap<u32, u64> = table.players.clone();
+                    let coin_updates: Vec<(u64, i64)> = raw_deltas.into_iter()
+                        .filter_map(|(pid, payout)| {
+                            // The disconnected player is no longer in player_map; use user_id directly
+                            let uid = if pid == player_id {
+                                user_id
+                            } else {
+                                *player_map.get(&pid)?
+                            };
+                            Some((uid, payout as i64))
+                        })
+                        .collect();
+                    IngestResult {
+                        personal: None,
+                        broadcast: Some(ev),
+                        post_broadcast: post,
+                        audience: aud,
+                        history: hist,
+                        coin_updates,
+                    }
+                } else {
+                    // Player had already stood — clean up silently
+                    table.info.remove_player(player_id);
+                    let audience = table.audience();
+                    let sv = serde_json::to_value(&table.info).unwrap_or_default();
+                    IngestResult {
+                        personal: None,
+                        broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": sv })),
+                        post_broadcast: None, audience, history: None, coin_updates: vec![],
+                    }
+                }
+            }
+        }
     }
 
     fn do_leave(&mut self, user_id: u64) -> IngestResult {

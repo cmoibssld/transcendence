@@ -1,0 +1,95 @@
+.rules-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 28px;
+}
+
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.rule-item {
+  display: flex;
+  gap: 20px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rule-item:last-child { border-bottom: none; }
+
+.rule-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.rule-number {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  opacity: 0.6;
+  flex-shrink: 0;
+  width: 28px;
+  padding-top: 3px;
+}
+
+.rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.rule-text {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+/* ── Payout table ── */
+.rule-payout-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-payout-list li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 0.86rem;
+}
+
+.payout-label {
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  min-width: 160px;
+}
+
+.payout-value {
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .rule-payout-list li { flex-direction: column; gap: 2px; }
+  .payout-label { min-width: unset; }
+}

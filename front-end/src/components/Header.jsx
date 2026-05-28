@@ -2,17 +2,15 @@ import { useNavigate, Link, NavLink } from 'react-router-dom'
 import '../styles/Header.css'
 
 const NAV_PUBLIC  = [
-  { to: '/',     label: 'Home'    },
-  { to: '/rules', label: 'Règles' },
-  { to: '/chat',  label: 'Chat'   },
+  { to: '/',      label: 'Accueil' },
+  { to: '/rules', label: 'Règles'  },
 ]
 
 const NAV_AUTH = [
-  { to: '/',           label: 'Home'       },
+  { to: '/',           label: 'Accueil'    },
   { to: '/friends',    label: 'Amis'       },
   { to: '/statistics', label: 'Stats'      },
   { to: '/history',    label: 'Historique' },
-  { to: '/chat',       label: 'Chat'       },
   { to: '/rules',      label: 'Règles'     },
 ]
 
@@ -24,12 +22,22 @@ function Avatar({ url, username }) {
   return <span className="hdr-avatar-initials">{initial}</span>
 }
 
+function LogoutIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+      <polyline points="16 17 21 12 16 7"/>
+      <line x1="21" y1="12" x2="9" y2="12"/>
+    </svg>
+  )
+}
+
 export default function Header() {
-  const navigate  = useNavigate()
-  const token     = localStorage.getItem('access_token')
+  const navigate   = useNavigate()
+  const token      = localStorage.getItem('access_token')
   const isLoggedIn = !!token
-  const username  = localStorage.getItem('username') ?? 'Joueur'
-  const avatarUrl = localStorage.getItem('avatar_url') || null
+  const username   = localStorage.getItem('username') ?? 'Joueur'
+  const avatarUrl  = localStorage.getItem('avatar_url') || null
 
   const navLinks = isLoggedIn ? NAV_AUTH : NAV_PUBLIC
 
@@ -40,7 +48,10 @@ export default function Header() {
 
   return (
     <header className="hdr">
-      <Link to="/" className="hdr-brand">LUIGI JACK</Link>
+      <Link to="/" className="hdr-brand">
+        <span className="hdr-brand__suit" aria-hidden="true">♠</span>
+        <span className="hdr-brand__text">LUIGI JACK</span>
+      </Link>
 
       <nav className="hdr-nav">
         {navLinks.map(({ to, label }) => (
@@ -64,8 +75,13 @@ export default function Header() {
               </span>
               <span className="hdr-username">{username}</span>
             </Link>
-            <button className="hdr-logout" onClick={handleLogout} aria-label="Déconnexion">
-              ⎋
+            <button
+              className="hdr-logout"
+              onClick={handleLogout}
+              title="Se déconnecter"
+              aria-label="Se déconnecter"
+            >
+              <LogoutIcon />
             </button>
           </>
         ) : (

@@ -1161,7 +1161,7 @@ export default function Profile() {
             </div>
             <h2 className="profile-name">{data.username}</h2>
             <p className="profile-account-type">
-              {isGitHub ? 'Compte GitHub' : 'Compte local'}
+              {isGitHub ? 'Compte GitHub' : ''}
             </p>
           </div>
 

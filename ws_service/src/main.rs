@@ -54,13 +54,24 @@ impl Actor for WsSession {
         clients.remove(&self.user_id);
         info!("User {} disconnected", self.user_id);
 
-        // Notify oauth of disconnection asynchronously
-        let client = self.state.http_client.clone();
-        let url = format!("{}/auth/presence/offline", self.state.user_service_url);
-        let user_id = self.user_id;
+        let client    = self.state.http_client.clone();
+        let game_url  = self.state.game_service_url.clone();
+        let user_url  = self.state.user_service_url.clone();
+        let user_id   = self.user_id;
         actix_web::rt::spawn(async move {
+            // Notify game engine: skip if in Betting, auto-stand if in Playing
             let _ = client
-                .post(url)
+                .post(format!("{}/ws/ingest", game_url))
+                .json(&serde_json::json!({
+                    "user_id": user_id,
+                    "kind":    "game.disconnect",
+                    "payload": {}
+                }))
+                .send()
+                .await;
+            // Update oauth presence
+            let _ = client
+                .post(format!("{}/auth/presence/offline", user_url))
                 .json(&serde_json::json!({"user_id": user_id}))
                 .send()
                 .await;

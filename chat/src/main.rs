@@ -118,8 +118,11 @@ impl ChatHub {
 
     fn message_rest(&mut self, room_id: &str, envelope: ChatEnvelope) -> Vec<u64> {
         let room = self.rooms.entry(room_id.to_string()).or_default();
-        room.push_history(envelope.clone());
-        // also push to WebSocket clients
+        // Only persist actual chat messages in history; system events (join/leave/rename)
+        // are ephemeral announcements and must not be replayed on future rejoins.
+        if envelope.kind == "chat.message" {
+            room.push_history(envelope.clone());
+        }
         for client in room.ws_clients.values() {
             client.do_send(WsServerEvent(envelope.clone()));
         }
@@ -335,11 +338,15 @@ async fn ws_message(
     HttpResponse::Accepted().finish()
 }
 
-async fn dispatch(client: &reqwest::Client, ws_url: &str, user_ids: Vec<u64>, event: serde_json::Value) {
+async fn dispatch(client: &reqwest::Client, ws_url: &str, user_ids: Vec<u64>, envelope: serde_json::Value) {
     if user_ids.is_empty() { return; }
+    let kind = envelope.get("kind").and_then(|v| v.as_str()).unwrap_or("chat.message").to_string();
     let _ = client
         .post(format!("{}/dispatch", ws_url))
-        .json(&serde_json::json!({"user_ids": user_ids, "event": event}))
+        .json(&serde_json::json!({
+            "user_ids": user_ids,
+            "event": { "kind": kind, "payload": envelope }
+        }))
         .send()
         .await;
 }

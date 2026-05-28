@@ -574,6 +574,11 @@ export default function GameBoard() {
   const selfNumId      = selfId !== null ? Number(selfId) : null
   const selfPendingBet = selfNumId !== null && pendingBets.some(p => Number(p) === selfNumId)
 
+  const selfCards  = selfId !== null ? (playersCards[selfId]  ?? playersCards[Number(selfId)]  ?? []) : []
+  const selfPoints = selfId !== null ? (playersPoints[selfId] ?? playersPoints[Number(selfId)] ?? 0)  : 0
+  const selfBet    = selfId !== null ? (bets[selfId]          ?? bets[Number(selfId)]          ?? 0)  : 0
+  const canDouble  = isMyTurn && selfCards.length === 2 && selfPoints !== 21 && coins !== null && selfBet <= coins
+
   const holeHidden   = !isRevealing && dealerCards.length > 1 && !roundEnd
   const holeFlipping = isRevealing && revealSeq.flipping
 
@@ -590,8 +595,13 @@ export default function GameBoard() {
   }
 
   // ── Betting timer ───────────────────────────────────────────────────────────
+  // Don't start the countdown while the outcome screen is visible — the player
+  // can't act until they dismiss it, so we'd auto-skip them unfairly.
   useEffect(() => {
-    if (!joined || phase !== "Betting" || !selfPendingBet) { setBettingTimer(null); return }
+    if (!joined || phase !== "Betting" || !selfPendingBet || roundEnd !== null) {
+      setBettingTimer(null)
+      return
+    }
     setBettingTimer(BET_TIMER_MAX)
     let t = BET_TIMER_MAX
     // cleanup (clearInterval) always runs before effect re-runs — local t is safe here
@@ -610,7 +620,7 @@ export default function GameBoard() {
         }
     }, 1000)
     return () => clearInterval(id)
-  }, [joined, phase, selfPendingBet])
+  }, [joined, phase, selfPendingBet, roundEnd])
 
   // ── Turn timer ──────────────────────────────────────────────────────────────
   const TURN_TIMER_MAX = 30
@@ -805,6 +815,13 @@ export default function GameBoard() {
               onClick={() => send("game.hit")}
               disabled={!joined || !isMyTurn}
             >Hit</button>
+            <button
+              type="button"
+              className="gb-btn gb-btn--double"
+              onClick={() => { send("game.double"); fetchCoins() }}
+              disabled={!canDouble}
+              title={canDouble ? `Doubler la mise (${selfBet} → ${selfBet * 2})` : "Double indisponible"}
+            >Double ×2</button>
             <button
               type="button"
               className="gb-btn gb-btn--stay"

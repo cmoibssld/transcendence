@@ -114,6 +114,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    ports:
+      - "8081:8081"
     networks:
       - transcendance
 
@@ -122,8 +124,8 @@ services:
       context: front-end
       dockerfile: Dockerfile
       args:
-        VITE_AUTH_URL: https://localhost:8443
-        VITE_GAME_URL: https://localhost:8443/api/game
+        VITE_AUTH_URL: http://localhost:8081
+        VITE_GAME_URL: http://localhost:8085
         VITE_CHAT_URL: https://localhost:8443/api/chat
         VITE_WS_URL: wss://localhost:8443/ws
     container_name: transcendance_frontend
@@ -134,8 +136,8 @@ services:
       oauth:
         condition: service_healthy
     environment:
-      VITE_AUTH_URL: https://localhost:8443
-      VITE_GAME_URL: https://localhost:8443/api/game
+      VITE_AUTH_URL: http://localhost:8081
+      VITE_GAME_URL: http://localhost:8085
       VITE_CHAT_URL: https://localhost:8443/api/chat
       VITE_WS_URL: wss://localhost:8443/ws
     networks:
@@ -156,6 +158,8 @@ services:
     depends_on:
       db_history:
         condition: service_healthy
+    ports:
+      - "8085:8080"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 10s

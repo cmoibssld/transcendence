@@ -163,7 +163,8 @@ impl GameInfo {
         }
     }
 
-    pub fn start_playing(&mut self) {
+    pub fn start_playing(&mut self, deck: &mut Deck) {
+        self.dealer_first_card(deck);
         self.phase = Phase::Playing;
         if let Some(&first) = self.players_in_game.first() {
             self.current_player = first;
@@ -218,6 +219,37 @@ impl GameInfo {
             }
             self.player_check(&player_id);
         }
+    }
+
+    pub fn is_active_player(&self, player_id: u32) -> bool {
+        self.players_in_game.contains(&player_id)
+    }
+
+    pub fn has_active_players(&self) -> bool {
+        !self.players_in_game.is_empty()
+    }
+
+    /// Double down: exactly 2 cards required, doubles the bet, draws 1 card.
+    /// Returns Some(original_bet) on success (caller must deduct the extra bet from coins).
+    /// Returns None if the action is invalid (wrong turn, wrong card count, already at 21).
+    pub fn double_down(&mut self, player_id: u32, deck: &mut Deck) -> Option<u64> {
+        if self.phase != Phase::Playing || self.current_player != player_id {
+            return None;
+        }
+        if self.player_card_count(&player_id) != 2 {
+            return None;
+        }
+        let pts = *self.players_points.get(&player_id)?;
+        if pts == 21 {
+            return None; // natural — cannot double
+        }
+        let original_bet = *self.bets.get(&player_id)?;
+        self.bets.insert(player_id, original_bet * 2);
+        if let Some(cards) = self.players_cards.get_mut(&player_id) {
+            cards.push(deck.draw());
+            self.player_check(&player_id);
+        }
+        Some(original_bet)
     }
 
     pub fn remove_player(&mut self, player_id: u32) {
@@ -278,7 +310,7 @@ impl GameInfo {
         if deck.half_draw() {
             deck.another_shuffle();
         }
-        self.dealer_first_card(deck);
+        // Dealer cards are dealt in start_playing(), not during Betting phase
     }
 }
 

@@ -776,6 +776,27 @@
   color: #1a1408;
 }
 
+.gb-btn--double {
+  background: linear-gradient(135deg, rgba(196, 168, 130, 0.18), rgba(196, 168, 130, 0.06));
+  color: var(--accent);
+  border: 1px solid rgba(196, 168, 130, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.gb-btn--double::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(196, 168, 130, 0.12), transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.gb-btn--double:hover:not(:disabled)::before {
+  opacity: 1;
+}
+
 .gb-btn--stay {
   background: rgba(255, 255, 255, 0.07);
   color: var(--text);
