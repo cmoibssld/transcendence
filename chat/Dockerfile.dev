@@ -1,7 +1,0 @@
-FROM rust:1.95-bookworm
-
-WORKDIR /usr/src/chat
-
-RUN cargo install cargo-watch --locked
-
-CMD ["cargo", "watch", "-x", "run"]
