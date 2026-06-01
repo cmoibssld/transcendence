@@ -47,3 +47,7 @@ Backend framework guide to put in place most of the features
 A most useful website to choose between Rust web framework and get examples and help for web developpement in Rust
 
 - To create the reverse-proxy to use as a gateway for the multi-container backend, we used this repo for inspiration: https://github.com/MarmadileManteater/SimpleReverseProxy
+
+- To understand how to optimize Docker images for Rust binaries: https://oneuptime.com/blog/post/2026-01-07-rust-minimal-docker-images/view
+
+- Speeding up compile time with Cargo: https://users.rust-lang.org/t/is-possible-to-speedup-cargo-build-command/104416/3

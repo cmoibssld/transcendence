@@ -30,6 +30,7 @@ async fn main() -> std::io::Result<()> {
 mod tests {
     use log::info;
     use crate::api::RestApi;
+    use uuid::Uuid;
 
     #[tokio::test] // test is not enough if I want to do async test -> tokio
     async fn not_found() {
@@ -57,7 +58,7 @@ mod tests {
     #[tokio::test]
     async fn bad_request() {
         let body = RestApi::new(
-            1,
+            Uuid::new_v4(),
             String::from("not something I can understand"),
             String::from("bad request"),
         );
@@ -70,26 +71,27 @@ mod tests {
         assert_eq!(res.status().as_u16(), 400)
     }
 
-    #[tokio::test]
-    async fn chat_request() {
-        let body = RestApi::new(
-            1,
-            String::from("chat"),
-            String::from("Hello, World!"),
-        );
-        let client = reqwest::Client::new();
-        let res = client.post("http://127.0.0.1:4567/ws_service")
-            .json(&body)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(res.status().as_u16(), 200)
-    }
+    // #[tokio::test]
+    // async fn chat_request() {
+    //     let body = RestApi::new(
+    //         Uuid::new_v4(),
+    //         String::from("chat"),
+    //         String::from("Hello, World!"),
+    //     );
+    //     let client = reqwest::Client::new();
+    //     let res = client.post("http://127.0.0.1:4567/ws_service")
+    //         .json(&body)
+    //         .send()
+    //         .await
+    //         .unwrap();
+    //     assert_eq!(res.status().as_u16(), 200)
+    // }
+    // Deprecated chat is a websocket now
 
     #[tokio::test]
     async fn game_request() {
         let body = RestApi::new(
-            3,
+            Uuid::new_v4(),
             String::from("game"),
             String::from("I want to play"),
         );
@@ -105,7 +107,7 @@ mod tests {
     #[tokio::test]
     async fn game_chat_creation() {
         let body = RestApi::new(
-            2,
+            Uuid::new_v4(),
             String::from("chat"),
             String::from("Joining chat"),
         );

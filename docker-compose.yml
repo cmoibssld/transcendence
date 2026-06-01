@@ -5,10 +5,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: diesel
-      POSTGRES_PASSWORD: dieselpass
+      POSTGRES_PASSWORD: dieselpass # FORBIDDEN
       POSTGRES_DB: transcendance
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -34,8 +32,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "3443:3443"
     networks:
       - transcendance
 
@@ -87,7 +83,7 @@ services:
 
   reverse-proxy:
     build:
-      context: docker/reverse-proxy
+      context: reverse-proxy
       dockerfile: Dockerfile
     container_name: transcendance_reverse_proxy
     restart: unless-stopped
@@ -96,17 +92,12 @@ services:
     networks:
       - transcendance
 
-  chat:
+  ws-service:
     build:
-      context: chat
+      context: ws_service
       dockerfile: Dockerfile
-    container_name: transcendance_chat
+    container_name: ws_service
     restart: unless-stopped
-    environment:
-      CHAT_HOST: 0.0.0.0
-      CHAT_PORT: 8090
-    ports:
-      - "8090:8090"
     networks:
       - transcendance
 

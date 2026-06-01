@@ -13,3 +13,4 @@ serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = [ "macros"] }
 actix = "0.13.5"
 actix-ws = "0.4.0"
+uuid = { version = "1.23.2", features = ["serde", "v4"] }
