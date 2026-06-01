@@ -6,8 +6,6 @@ use diesel::serialize::{self, IsNull, Output, ToSql};
 use diesel::sql_types::SqlType;
 use std::io::Write;
 
-// ── game_rounds ───────────────────────────────────────────────────────────────
-
 #[derive(Queryable, Selectable, Identifiable, Debug)]
 #[diesel(table_name = crate::schema::game_rounds)]
 pub struct GameRound {
@@ -27,8 +25,6 @@ pub struct NewGameRound<'a> {
     pub dealer_points: i32,
     pub result_json:   &'a str,
 }
-
-// ── round_outcome (Postgres ENUM) ────────────────────────────────────────────
 
 #[derive(SqlType, Clone)]
 #[diesel(postgres_type(name = "round_outcome"))]
@@ -77,8 +73,6 @@ impl FromSql<RoundOutcomeType, Pg> for RoundOutcome {
     }
 }
 
-// ── round_players ─────────────────────────────────────────────────────────────
-
 #[derive(Queryable, Selectable, Identifiable, Debug)]
 #[diesel(table_name = crate::schema::round_players)]
 pub struct RoundPlayer {
@@ -100,8 +94,6 @@ pub struct NewRoundPlayer {
     pub outcome:  RoundOutcome,
     pub payout:   i64,
 }
-
-// ── user_stats ────────────────────────────────────────────────────────────────
 
 #[derive(Queryable, Selectable, Identifiable, Debug)]
 #[diesel(table_name = crate::schema::user_stats)]

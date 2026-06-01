@@ -2,6 +2,7 @@ use actix_cors::Cors;
 use actix_session::{Session, SessionMiddleware, storage::CookieSessionStore};
 use actix_web::cookie::{Key, SameSite};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result};
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use actix_web::http::header;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Duration, Utc};
@@ -13,7 +14,7 @@ use jsonwebtoken::{encode, decode, EncodingKey, DecodingKey, Header, Validation}
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
@@ -25,6 +26,7 @@ type DbPool = Pool<ConnectionManager<PgConnection>>;
 type HmacSha256 = Hmac<Sha256>;
 type CodeStore = Mutex<HashMap<String, (AuthResponse, Instant)>>;
 type LoginAttempts = Mutex<HashMap<String, (u32, Instant)>>;
+type PresenceMap = Mutex<HashSet<i32>>;
 
 #[derive(Deserialize)]
 struct ExchangeQuery {
@@ -371,7 +373,8 @@ async fn login(
             .json(serde_json::json!({"error": "Wrong credentials"}));
     }
 
-    match issue_tokens(pool, user.id, user.username, None, &req).await {
+    let avatar = if user.avatar.is_empty() { None } else { Some(user.avatar) };
+    match issue_tokens(pool, user.id, user.username, avatar, &req).await {
         Ok(response_data) => HttpResponse::Ok().json(response_data),
         Err(_) => HttpResponse::InternalServerError()
             .json(serde_json::json!({"error": "Token generation failed"})),
@@ -380,6 +383,8 @@ async fn login(
 
 async fn github_login(session: Session) -> Result<HttpResponse> {
     let client_id = env::var("GITHUB_ID").expect("GITHUB_ID must be set");
+    let redirect_uri = env::var("OAUTH_REDIRECT_URI")
+        .unwrap_or_else(|_| "https://localhost:8443/auth/github/callback".to_string());
     let scope = "read:user";
     let state: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -392,8 +397,11 @@ async fn github_login(session: Session) -> Result<HttpResponse> {
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let auth_url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&scope={}&state={}",
-        client_id, scope, state
+        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope={}&state={}",
+        client_id,
+        urlencoding::encode(&redirect_uri),
+        scope,
+        state
     );
 
     Ok(HttpResponse::Found()
@@ -496,7 +504,7 @@ async fn github_callback(
     let response_data = issue_tokens(pool, user.id, user.username.clone(), Some(avatar), &req).await?;
 
     let frontend_redirect = env::var("FRONTEND_REDIRECT_URL")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+        .unwrap_or_else(|_| "https://localhost:8443/auth/callback".to_string());
 
     let one_time_code: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -974,11 +982,156 @@ async fn update_coins(
     }
 }
 
-// Called by ws-service when a client disconnects (AFK/presence tracking)
-async fn presence_offline(body: web::Json<PresenceRequest>) -> impl Responder {
-    // Placeholder: log the disconnection; extend with DB update when a presence table is added
-    eprintln!("User {} went offline", body.user_id);
+// Push a presence.update event to all online friends of `user_id`
+async fn dispatch_presence_to_friends(user_id: i32, online: bool, pool: web::Data<DbPool>) {
+    let ws_url = match env::var("WS_SERVICE_URL") {
+        Ok(u) => u,
+        Err(_) => return, // no ws-service configured, skip
+    };
+    let internal_secret = env::var("INTERNAL_SECRET").unwrap_or_default();
+
+    // Fetch friend IDs from DB
+    let friend_ids: Vec<i32> = {
+        let result = web::block(move || {
+            use crate::schema::friendships::dsl as f;
+            let mut conn = pool.get().ok()?;
+            let sent: Vec<i32> = f::friendships
+                .filter(f::requester_id.eq(user_id).and(f::status.eq(models::FriendshipStatus::Accepted)))
+                .select(f::addressee_id)
+                .load(&mut conn).ok()?;
+            let recv: Vec<i32> = f::friendships
+                .filter(f::addressee_id.eq(user_id).and(f::status.eq(models::FriendshipStatus::Accepted)))
+                .select(f::requester_id)
+                .load(&mut conn).ok()?;
+            Some(sent.into_iter().chain(recv).collect::<Vec<i32>>())
+        }).await;
+        match result { Ok(Some(ids)) => ids, _ => return }
+    };
+
+    if friend_ids.is_empty() { return; }
+
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_default();
+
+    let event = serde_json::json!({
+        "user_ids": friend_ids,
+        "kind":     "presence.update",
+        "payload":  { "user_id": user_id, "online": online }
+    });
+
+    let _ = client
+        .post(format!("{}/dispatch", ws_url))
+        .header("X-Internal-Secret", &internal_secret)
+        .json(&event)
+        .send()
+        .await;
+}
+
+// Called by ws-service OR the frontend (JWT) when a client connects
+async fn presence_online(
+    req: HttpRequest,
+    body: web::Json<PresenceRequest>,
+    presence: web::Data<PresenceMap>,
+    pool: web::Data<DbPool>,
+) -> impl Responder {
+    let user_id = if body.user_id != 0 {
+        body.user_id as i32
+    } else {
+        match extract_user_id(&req) {
+            Some(id) => id,
+            None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+        }
+    };
+    let already_online = !presence.lock().unwrap().insert(user_id);
+    if !already_online {
+        dispatch_presence_to_friends(user_id, true, pool).await;
+    }
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+// Lookup a user by numeric ID
+#[derive(Deserialize)]
+struct UserByIdQuery { id: i32 }
+
+async fn lookup_user_by_id(
+    query: web::Query<UserByIdQuery>,
+    pool:  web::Data<DbPool>,
+) -> impl Responder {
+    let id = query.id;
+    let result = web::block(move || {
+        use crate::schema::users::dsl as u;
+        let mut conn = pool.get().expect("DB pool");
+        u::users
+            .filter(u::id.eq(id))
+            .select((u::id, u::username, u::avatar))
+            .first::<(i32, String, String)>(&mut conn)
+    })
+    .await;
+
+    match result {
+        Ok(Ok((id, username, avatar))) => {
+            let avatar_url = if avatar.is_empty() { None } else { Some(avatar) };
+            HttpResponse::Ok().json(UserLookupResponse { id, username, avatar_url })
+        }
+        Ok(Err(diesel::result::Error::NotFound)) =>
+            HttpResponse::NotFound().json(serde_json::json!({"error": "user not found"})),
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
+}
+
+// Called by ws-service when a client disconnects
+async fn presence_offline(
+    body: web::Json<PresenceRequest>,
+    presence: web::Data<PresenceMap>,
+    pool: web::Data<DbPool>,
+) -> impl Responder {
+    let user_id = body.user_id as i32;
+    let was_online = presence.lock().unwrap().remove(&user_id);
+    if was_online {
+        dispatch_presence_to_friends(user_id, false, pool).await;
+    }
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+// Returns which of the authenticated user's friends are currently online
+async fn get_presence(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    presence: web::Data<PresenceMap>,
+) -> impl Responder {
+    let me = match extract_user_id(&req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+    };
+
+    let result = web::block(move || {
+        use crate::schema::friendships::dsl as f;
+        let mut conn = pool.get().expect("DB pool");
+
+        let sent: Vec<i32> = f::friendships
+            .filter(f::requester_id.eq(me).and(f::status.eq(models::FriendshipStatus::Accepted)))
+            .select(f::addressee_id)
+            .load(&mut conn)?;
+
+        let received: Vec<i32> = f::friendships
+            .filter(f::addressee_id.eq(me).and(f::status.eq(models::FriendshipStatus::Accepted)))
+            .select(f::requester_id)
+            .load(&mut conn)?;
+
+        Ok::<Vec<i32>, diesel::result::Error>(sent.into_iter().chain(received).collect())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(friend_ids)) => {
+            let online_set = presence.lock().unwrap();
+            let online_ids: Vec<i32> = friend_ids.into_iter().filter(|id| online_set.contains(id)).collect();
+            HttpResponse::Ok().json(serde_json::json!({"online_ids": online_ids}))
+        }
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
+    }
 }
 
 fn validate_lookup_username(username: &str) -> Option<HttpResponse> {
@@ -1295,6 +1448,7 @@ async fn exchange_code(
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
 
     let conn_str = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<PgConnection>::new(conn_str);
@@ -1308,12 +1462,15 @@ async fn main() -> std::io::Result<()> {
     let secret_key = Key::from(session_key.as_bytes());
     let code_store: web::Data<CodeStore> = web::Data::new(Mutex::new(HashMap::new()));
     let login_attempts: web::Data<LoginAttempts> = web::Data::new(Mutex::new(HashMap::new()));
+    let presence: web::Data<PresenceMap> = web::Data::new(Mutex::new(HashSet::new()));
 
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .app_data(code_store.clone())
             .app_data(login_attempts.clone())
+            .app_data(presence.clone())
+            .wrap(actix_web::middleware::Logger::default())
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
                     .cookie_secure(env::var("COOKIE_SECURE").ok().as_deref() != Some("false"))
@@ -1322,9 +1479,10 @@ async fn main() -> std::io::Result<()> {
             )
             .wrap(
                 Cors::default()
-                    .allowed_origin("http://localhost:3000")
-                    .allowed_origin("http://localhost:5173")
-                    .allowed_origin("https://localhost:8443")
+                    .allowed_origin_fn(|origin, _| {
+                        let b = origin.as_bytes();
+                        b.starts_with(b"https://localhost") || b.starts_with(b"http://localhost")
+                    })
                     .allowed_methods(vec!["GET", "POST", "PATCH", "OPTIONS"])
                     .allowed_headers(vec![
                         header::CONTENT_TYPE,
@@ -1342,11 +1500,14 @@ async fn main() -> std::io::Result<()> {
             .route("/auth/logout", web::post().to(logout))
             .route("/auth/refresh", web::post().to(refresh_token))
             .route("/auth/introspect", web::post().to(introspect))
+            .route("/auth/presence/online",  web::post().to(presence_online))
             .route("/auth/presence/offline", web::post().to(presence_offline))
+            .route("/auth/presence",         web::get().to(get_presence))
             .route("/auth/balance", web::get().to(get_balance))
             .route("/auth/profile", web::get().to(get_profile))
             .route("/auth/profile", web::patch().to(patch_profile))
-            .route("/auth/users", web::get().to(lookup_user))
+            .route("/auth/users",      web::get().to(lookup_user))
+            .route("/auth/users/byid", web::get().to(lookup_user_by_id))
             .route("/auth/friends", web::get().to(list_friends))
             .route("/auth/friends/pending", web::get().to(list_pending))
             .route("/auth/friends/request", web::post().to(friend_request))
@@ -1356,9 +1517,20 @@ async fn main() -> std::io::Result<()> {
             .route("/auth/internal/users",        web::post().to(internal_users))
             .route("/auth/internal/friend-check", web::post().to(internal_friend_check))
     })
-    .bind("0.0.0.0:8081")?
+    .bind_openssl("0.0.0.0:8081", build_tls())?
     .run()
     .await
+}
+
+fn build_tls() -> openssl::ssl::SslAcceptorBuilder {
+    let cert = std::env::var("TLS_CERT_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
+    let key  = std::env::var("TLS_KEY_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-key.pem".to_string());
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder.set_private_key_file(&key,  SslFiletype::PEM).unwrap();
+    builder.set_certificate_chain_file(&cert).unwrap();
+    builder
 }
 
 #[cfg(test)]

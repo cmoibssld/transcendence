@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { apiFetch } from "../auth";
+import { apiFetch, getAccessToken } from "../auth";
 import "../styles/History.css";
 
-const GAME_URL = import.meta.env.VITE_GAME_URL ?? "http://localhost:8085";
+const GAME_URL = import.meta.env.VITE_GAME_URL ?? "https://localhost:8443/api/game";
 
 const OUTCOME_META = {
   win:       { label: "Win",       color: "#48c96a", bg: "rgba(72,201,106,0.10)"  },
@@ -34,13 +34,18 @@ export default function History() {
   const [error,   setError]   = useState("");
 
   useEffect(() => {
+    if (!getAccessToken()) {
+      setError("Connecte-toi pour voir ton historique.");
+      setLoading(false);
+      return;
+    }
     apiFetch(`${GAME_URL}/history`)
       .then(r => {
-        if (!r.ok) throw new Error();
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
       .then(data => { setRounds(data); setLoading(false); })
-      .catch(() => { setError("Could not load history."); setLoading(false); });
+      .catch((e) => { setError(`Could not load history. ${e.message}`); setLoading(false); });
   }, []);
 
   return (

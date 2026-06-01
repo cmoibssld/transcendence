@@ -1,28 +1,60 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import '../styles/Profile.css'
 import { apiFetch } from '../auth'
 
 const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? 'https://localhost:8443'
 
+const DEFAULT_AVATAR = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%231a1a22'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%23c4a882' opacity='.55'/%3E%3Cellipse cx='32' cy='54' rx='20' ry='14' fill='%23c4a882' opacity='.35'/%3E%3C/svg%3E`
+
 function AvatarDisplay({ url, username }) {
   if (url) {
-    return <img src={url} alt={username} className="profile-avatar-img" />
+    return (
+      <img
+        src={url}
+        alt={username}
+        className="profile-avatar-img"
+        onError={e => { e.currentTarget.src = DEFAULT_AVATAR }}
+      />
+    )
   }
   return (
     <div className="profile-avatar-initials">
-      {(username ?? 'J')[0].toUpperCase()}
+      {(username ?? '?')[0].toUpperCase()}
     </div>
   )
 }
 
+function resizeImageToDataUrl(file, maxSize = 256) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const size = Math.min(img.width, img.height)
+      const sx   = (img.width  - size) / 2
+      const sy   = (img.height - size) / 2
+      const canvas = document.createElement('canvas')
+      canvas.width  = maxSize
+      canvas.height = maxSize
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, maxSize, maxSize)
+      resolve(canvas.toDataURL('image/jpeg', 0.88))
+    }
+    img.onerror = reject
+    img.src = url
+  })
+}
+
 export default function Profile() {
-  const [data,        setData]        = useState(null)
-  const [loading,     setLoading]     = useState(true)
-  const [error,       setError]       = useState('')
-  const [editing,     setEditing]     = useState(false)
-  const [saving,      setSaving]      = useState(false)
-  const [saveError,   setSaveError]   = useState('')
-  const [saveSuccess, setSaveSuccess] = useState('')
+  const [data,          setData]          = useState(null)
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState('')
+  const [editing,       setEditing]       = useState(false)
+  const [saving,        setSaving]        = useState(false)
+  const [saveError,     setSaveError]     = useState('')
+  const [saveSuccess,   setSaveSuccess]   = useState('')
+  const [uploadingImg,  setUploadingImg]  = useState(false)
+  const fileInputRef = useRef(null)
   const [form, setForm] = useState({
     username:         '',
     avatar_url:       '',
@@ -124,6 +156,21 @@ export default function Profile() {
 
   const change = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }))
 
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingImg(true)
+    try {
+      const dataUrl = await resizeImageToDataUrl(file)
+      setForm(f => ({ ...f, avatar_url: dataUrl }))
+    } catch {
+      setSaveError("Impossible de lire l'image.")
+    } finally {
+      setUploadingImg(false)
+      e.target.value = ''
+    }
+  }
+
   if (loading) {
     return (
       <div className="page-shell">
@@ -210,7 +257,7 @@ export default function Profile() {
                     }
                   </div>
 
-                  {data.avatar_url && (
+                  {data.avatar_url && !data.avatar_url.startsWith('data:') && (
                     <div className="profile-view-card profile-view-card--wide">
                       <span className="profile-view-label">Avatar URL</span>
                       <span className="profile-view-value profile-view-value--url">{data.avatar_url}</span>
@@ -252,21 +299,48 @@ export default function Profile() {
                 </div>
 
                 <div className="profile-field">
-                  <label htmlFor="pf-avatar">URL de l'avatar</label>
-                  <input
-                    id="pf-avatar"
-                    type="url"
-                    value={form.avatar_url}
-                    onChange={change('avatar_url')}
-                    placeholder="https://…"
-                  />
+                  <label>Avatar</label>
+                  <div className="profile-avatar-upload-row">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={handleFileChange}
+                    />
+                    <button
+                      type="button"
+                      className="profile-upload-btn"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingImg}
+                    >
+                      {uploadingImg ? 'Chargement…' : 'Choisir un fichier'}
+                    </button>
+                    <span className="profile-upload-sep">ou</span>
+                    <input
+                      id="pf-avatar"
+                      type="url"
+                      value={form.avatar_url.startsWith('data:') ? '' : form.avatar_url}
+                      onChange={change('avatar_url')}
+                      placeholder="https://… (URL)"
+                      className="profile-upload-url"
+                    />
+                  </div>
                   {form.avatar_url && (
                     <div className="profile-avatar-preview">
                       <img
                         src={form.avatar_url}
                         alt="Aperçu"
-                        onError={e => { e.target.style.display = 'none' }}
+                        onError={e => { e.currentTarget.src = DEFAULT_AVATAR }}
                       />
+                      <button
+                        type="button"
+                        className="profile-avatar-clear"
+                        onClick={() => setForm(f => ({ ...f, avatar_url: '' }))}
+                        title="Supprimer l'avatar"
+                      >
+                        ✕
+                      </button>
                     </div>
                   )}
                 </div>

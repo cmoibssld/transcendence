@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { apiFetch, getAccessToken } from "../auth";
 import "../styles/Statistics.css";
 
-const GAME_URL = import.meta.env.VITE_GAME_URL ?? "http://localhost:8085";
+const GAME_URL = import.meta.env.VITE_GAME_URL ?? "https://localhost:8443/api/game";
 
 function Avatar({ username, avatarUrl, size = 32 }) {
   if (avatarUrl)
@@ -65,18 +65,19 @@ export default function Statistics() {
 
   useEffect(() => {
     const token = getAccessToken();
+    const safe = (p) => p.catch(() => null);
     Promise.all([
-      fetch(`${GAME_URL}/leaderboard/wins?limit=10`).then(r => r.ok ? r.json() : []),
-      fetch(`${GAME_URL}/leaderboard/wagered?limit=10`).then(r => r.ok ? r.json() : []),
-      fetch(`${GAME_URL}/leaderboard/gains?limit=10`).then(r => r.ok ? r.json() : []),
+      safe(fetch(`${GAME_URL}/leaderboard/wins?limit=10`).then(r => r.ok ? r.json() : [])),
+      safe(fetch(`${GAME_URL}/leaderboard/wagered?limit=10`).then(r => r.ok ? r.json() : [])),
+      safe(fetch(`${GAME_URL}/leaderboard/gains?limit=10`).then(r => r.ok ? r.json() : [])),
       token
-        ? apiFetch(`${GAME_URL}/stats/me`).then(r => r.ok ? r.json() : null)
+        ? safe(apiFetch(`${GAME_URL}/stats/me`).then(r => r.ok ? r.json() : null))
         : Promise.resolve(null),
     ]).then(([wins, wagered, gains, me]) => {
-      setByWins(wins);
-      setByWagered(wagered);
-      setByGains(gains);
-      setMyStats(me);
+      setByWins(wins ?? []);
+      setByWagered(wagered ?? []);
+      setByGains(gains ?? []);
+      setMyStats(me ?? null);
       setLoading(false);
     });
   }, []);

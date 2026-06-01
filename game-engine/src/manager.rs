@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use crate::blackjack::{GameInfo, Deck, Phase};
 use rand::prelude::*;
+use serde::Serialize;
 
 struct GameManager {
     players: HashMap<u32, u64>,  // player_id → user_id
@@ -25,6 +26,7 @@ pub struct IngestResult {
     pub coin_updates:   Vec<(u64, i64)>,  // (user_id, delta)
 }
 
+#[derive(Serialize)]
 pub struct PlayerOutcome {
     pub user_id: u64,
     pub bet:     u64,
@@ -32,11 +34,12 @@ pub struct PlayerOutcome {
     pub payout:  u64,
 }
 
+#[derive(Serialize)]
 pub struct HistoryData {
-    pub table_id:       i32,
-    pub round_number:   i32,
-    pub dealer_points:  i32,
-    pub result_json:    String,
+    pub table_id:        i32,
+    pub round_number:    i32,
+    pub dealer_points:   i32,
+    pub result_json:     String,
     pub player_outcomes: Vec<PlayerOutcome>,
 }
 

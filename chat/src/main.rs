@@ -3,6 +3,7 @@ use actix_cors::Cors;
 use actix_web::{post, web, App, Error, HttpRequest, HttpResponse, HttpServer, Result};
 use actix_web::http::header::{self, HeaderName};
 use actix_web_actors::ws;
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
@@ -430,10 +431,11 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(8090);
 
     let ws_service_url = std::env::var("WS_SERVICE_URL")
-        .unwrap_or_else(|_| "http://ws-service:8082".to_string());
+        .unwrap_or_else(|_| "https://ws-service:8082".to_string());
 
     let http_client = web::Data::new(
         reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(5))
             .build()
             .expect("Failed to build HTTP client"),
@@ -442,7 +444,10 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         let cors = Cors::default()
-            .allowed_origin("http://localhost:3000")
+            .allowed_origin_fn(|origin, _| {
+                let b = origin.as_bytes();
+                b.starts_with(b"https://localhost") || b.starts_with(b"http://localhost")
+            })
             .allowed_methods(vec!["GET", "POST", "OPTIONS"])
             .allowed_headers(vec![
                 header::CONTENT_TYPE,
@@ -462,7 +467,18 @@ async fn main() -> std::io::Result<()> {
             .service(ws_message)
             .route("/health", web::get().to(health))
     })
-    .bind((host.as_str(), port))?
+    .bind_openssl((host.as_str(), port), build_tls())?
     .run()
     .await
+}
+
+fn build_tls() -> openssl::ssl::SslAcceptorBuilder {
+    let cert = std::env::var("TLS_CERT_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
+    let key  = std::env::var("TLS_KEY_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-key.pem".to_string());
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder.set_private_key_file(&key,  SslFiletype::PEM).unwrap();
+    builder.set_certificate_chain_file(&cert).unwrap();
+    builder
 }

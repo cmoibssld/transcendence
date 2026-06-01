@@ -1,16 +1,42 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { apiFetch } from "../auth";
 import "../styles/Friends.css";
 
-const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? "http://localhost:8081";
-const GAME_URL = import.meta.env.VITE_GAME_URL ?? "http://localhost:8085";
+const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443";
+const GAME_URL = import.meta.env.VITE_GAME_URL ?? "https://localhost:8443/api/game";
 
-function Avatar({ username, avatarUrl, size = 48 }) {
-  if (avatarUrl) {
-    return <img className="friend-avatar" src={avatarUrl} alt={username} style={{ width: size, height: size }} />;
-  }
+const DEFAULT_AVATAR = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%231a1a22'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%23c4a882' opacity='.55'/%3E%3Cellipse cx='32' cy='54' rx='20' ry='14' fill='%23c4a882' opacity='.35'/%3E%3C/svg%3E`;
+
+function Avatar({ username, avatarUrl, size = 48, online }) {
+  const radius = Math.round(size * 0.27);
+  const dotSize = Math.max(10, Math.round(size * 0.2));
+
   return (
-    <div className="friend-avatar-initial" style={{ width: size, height: size }}>{username[0].toUpperCase()}</div>
+    <div className="avatar-wrap" style={{ width: size, height: size }}>
+      {avatarUrl ? (
+        <img
+          className="friend-avatar"
+          src={avatarUrl}
+          alt={username}
+          style={{ width: size, height: size, borderRadius: radius }}
+          onError={e => { e.currentTarget.src = DEFAULT_AVATAR; }}
+        />
+      ) : (
+        <div
+          className="friend-avatar-initial"
+          style={{ width: size, height: size, fontSize: size * 0.38, borderRadius: radius }}
+        >
+          {username[0].toUpperCase()}
+        </div>
+      )}
+      {online !== undefined && (
+        <span
+          className={`presence-dot ${online ? "online" : "offline"}`}
+          style={{ width: dotSize, height: dotSize, bottom: -2, right: -2 }}
+          title={online ? "Online" : "Offline"}
+        />
+      )}
+    </div>
   );
 }
 
@@ -86,14 +112,24 @@ function FriendStatsPanel({ username, onClose }) {
 }
 
 const Friends = () => {
-  const [friends, setFriends]         = useState([]);
-  const [pending, setPending]         = useState([]);
-  const [search, setSearch]           = useState("");
-  const [found, setFound]             = useState(null);
-  const [searching, setSearching]     = useState(false);
-  const [searchErr, setSearchErr]     = useState("");
-  const [loading, setLoading]         = useState(true);
+  const [friends, setFriends]           = useState([]);
+  const [pending, setPending]           = useState([]);
+  const [onlineIds, setOnlineIds]       = useState(new Set());
+  const [search, setSearch]             = useState("");
+  const [found, setFound]               = useState(null);
+  const [searching, setSearching]       = useState(false);
+  const [searchErr, setSearchErr]       = useState("");
+  const [loading, setLoading]           = useState(true);
   const [viewingStats, setViewingStats] = useState(null);
+  const presenceTimer = useRef(null);
+
+  const loadPresence = useCallback(async () => {
+    const res = await apiFetch(`${AUTH_URL}/auth/presence`);
+    if (res.ok) {
+      const data = await res.json();
+      setOnlineIds(new Set(data.online_ids ?? []));
+    }
+  }, []);
 
   const loadFriends = useCallback(async () => {
     const [fRes, pRes] = await Promise.all([
@@ -103,9 +139,23 @@ const Friends = () => {
     if (fRes.ok) setFriends(await fRes.json());
     if (pRes.ok) setPending(await pRes.json());
     setLoading(false);
-  }, []);
+    loadPresence();
+  }, [loadPresence]);
 
-  useEffect(() => { loadFriends(); }, [loadFriends]);
+  useEffect(() => {
+    loadFriends();
+    // Poll every 5s for near-real-time presence
+    presenceTimer.current = setInterval(loadPresence, 5_000);
+
+    // Refresh immediately when tab becomes visible again
+    const onVisible = () => { if (document.visibilityState === "visible") loadPresence(); }
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(presenceTimer.current);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadFriends, loadPresence]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -185,7 +235,7 @@ const Friends = () => {
         {searchErr  && <p className="friends-hint error">{searchErr}</p>}
         {found && (
           <div className="search-result">
-            <Avatar username={found.username} avatarUrl={found.avatar_url} />
+            <Avatar username={found.username} avatarUrl={found.avatar_url} online={onlineIds.has(found.id)} />
             <span className="friend-name">{found.username}</span>
             {isFriend(found.username) ? (
               <span className="badge">Already friends</span>
@@ -207,7 +257,7 @@ const Friends = () => {
             <div className="friends-grid">
               {pending.map((p) => (
                 <div className="friend-card" key={p.id}>
-                  <Avatar username={p.username} avatarUrl={p.avatar_url} />
+                  <Avatar username={p.username} avatarUrl={p.avatar_url} size={88} />
                   <span className="friend-name">{p.username}</span>
                   <div className="action-row">
                     <button className="btn-accept"  onClick={() => accept(p.username)}>Accept</button>
@@ -231,7 +281,7 @@ const Friends = () => {
                   className={`friend-card${viewingStats === f.username ? " friend-card--active" : ""}`}
                   key={f.id}
                 >
-                  <Avatar username={f.username} avatarUrl={f.avatar_url} />
+                  <Avatar username={f.username} avatarUrl={f.avatar_url} size={88} online={onlineIds.has(f.id)} />
                   <span className="friend-name">{f.username}</span>
                   <div className="action-row">
                     <button

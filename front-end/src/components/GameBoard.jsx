@@ -331,6 +331,7 @@ export default function GameBoard() {
   const [skippedThisRound, setSkippedThisRound] = useState(false)
   const skippedRef            = useRef(false)
   const [chatMessages, setChatMessages] = useState([])
+  const [playerNames,  setPlayerNames]  = useState({}) // id → username
   // Reveal state: null = idle, { cards, flipping } = animating
   const [revealSeq, setRevealSeq] = useState(null)
 
@@ -400,6 +401,14 @@ export default function GameBoard() {
       const kind    = msg.kind
       const payload = msg.payload ?? msg
 
+      // ── kicked (same account opened elsewhere) ───────────────────────────
+      if (kind === "system.kick") {
+        setStatus("⚠️ Compte connecté depuis une autre fenêtre — déconnecté.")
+        setJoined(false)
+        if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
+        return
+      }
+
       // ── chat messages ─────────────────────────────────────────────────────
       if (kind?.startsWith("chat.")) {
         setChatMessages(prev => [...prev, { ...msg, _id: prev.length }])
@@ -418,6 +427,28 @@ export default function GameBoard() {
 
       // ── game state ────────────────────────────────────────────────────────
       if (kind === "game.state") {
+        // Resolve unknown player names
+        const knownIds = new Set(Object.keys(selfIdRef.current ? {[selfIdRef.current]: true} : {}))
+        const newIds = (payload.players_in_game ?? Object.keys(payload.players_cards ?? {}))
+          .map(String)
+          .filter(id => id && !knownIds.has(id))
+        if (newIds.length > 0) {
+          setPlayerNames(prev => {
+            const missing = newIds.filter(id => !prev[id])
+            if (missing.length === 0) return prev
+            missing.forEach(id => {
+              fetch(`${AUTH_URL}/auth/users/byid?id=${id}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                  if (data?.username) {
+                    setPlayerNames(p => ({ ...p, [id]: data.username }))
+                  }
+                })
+                .catch(() => {})
+            })
+            return prev
+          })
+        }
         setGameInfo(payload)
         setJoined(true)
         // New round: server re-adds us to pending_bets → clear skip flag
@@ -767,7 +798,11 @@ export default function GameBoard() {
                     ].join(" ").trim()}
                   >
                     <div className="gb-seat__badge">
-                      <span>Joueur {pid}{isSelf ? " (vous)" : ""}</span>
+                      <span>
+                        {isSelf
+                          ? (localStorage.getItem("username") ?? `#${pid}`) + " (vous)"
+                          : (playerNames[pid] ?? `Joueur #${pid}`)}
+                      </span>
                       {hasBet && <em className="bet-tag">Mise : {bet}</em>}
                       {isPending && <em className="pending-tag">mise…</em>}
                       {phase === "Playing" && typeof pts === "number" && (
@@ -777,7 +812,9 @@ export default function GameBoard() {
                     </div>
                     {phase === "Playing" && (
                       <Hand
-                        label={`Joueur ${pid}`}
+                        label={isSelf
+                          ? (localStorage.getItem("username") ?? `#${pid}`)
+                          : (playerNames[pid] ?? `Joueur #${pid}`)}
                         cards={cards}
                         points={typeof pts === "number" ? pts : undefined}
                         isActive={isCurrent}

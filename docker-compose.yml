@@ -7,8 +7,6 @@ services:
       POSTGRES_USER: diesel
       POSTGRES_PASSWORD: dieselpass
       POSTGRES_DB: transcendance_oauth
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata_oauth:/var/lib/postgresql/data
     healthcheck:
@@ -27,8 +25,6 @@ services:
       POSTGRES_USER: diesel
       POSTGRES_PASSWORD: dieselpass
       POSTGRES_DB: transcendance_history
-    ports:
-      - "5433:5432"
     volumes:
       - pgdata_history:/var/lib/postgresql/data
     healthcheck:
@@ -49,8 +45,8 @@ services:
       DATABASE_URL: postgres://diesel:dieselpass@db_oauth:5432/transcendance_oauth
       API_HOST: 0.0.0.0
       API_PORT: 3443
-      TLS_CERT_FILE: certs/dev-cert.pem
-      TLS_KEY_FILE: certs/dev-key.pem
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
     depends_on:
       db_oauth:
         condition: service_healthy
@@ -59,8 +55,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    ports:
-      - "3443:3443"
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
       - transcendance
 
@@ -100,22 +96,26 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
       REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev-refresh-secret-change-me}
       SESSION_KEY: ${SESSION_KEY:-dev-session-key-do-not-use-in-prod-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
-      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-http://localhost:8081/auth/github/callback}
-      FRONTEND_REDIRECT_URL: ${FRONTEND_REDIRECT_URL:-http://localhost:3000/auth/callback}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-https://localhost:8443/auth/github/callback}
+      FRONTEND_REDIRECT_URL: ${FRONTEND_REDIRECT_URL:-https://localhost:8443/auth/callback}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret-change-me}
       GITHUB_ID: ${GITHUB_ID}
       GITHUB_SECRET: ${GITHUB_SECRET}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+      RUST_LOG: info,actix_web=info
+      WS_SERVICE_URL: https://ws-service:8082
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8081/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
-    ports:
-      - "8081:8081"
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
       - transcendance
 
@@ -124,22 +124,48 @@ services:
       context: front-end
       dockerfile: Dockerfile
       args:
-        VITE_AUTH_URL: http://localhost:8081
-        VITE_GAME_URL: http://localhost:8085
+        VITE_AUTH_URL: https://localhost:8443
+        VITE_GAME_URL: https://localhost:8443/api/game
         VITE_CHAT_URL: https://localhost:8443/api/chat
         VITE_WS_URL: wss://localhost:8443/ws
     container_name: transcendance_frontend
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     depends_on:
       oauth:
         condition: service_healthy
     environment:
-      VITE_AUTH_URL: http://localhost:8081
-      VITE_GAME_URL: http://localhost:8085
+      VITE_AUTH_URL: https://localhost:8443
+      VITE_GAME_URL: https://localhost:8443/api/game
       VITE_CHAT_URL: https://localhost:8443/api/chat
       VITE_WS_URL: wss://localhost:8443/ws
+    networks:
+      - transcendance
+
+  stats-service:
+    build:
+      context: stats-service
+      dockerfile: Dockerfile
+    container_name: transcendance_stats
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:     postgres://diesel:dieselpass@db_history:5432/transcendance_history
+      USER_SERVICE_URL: https://oauth:8081
+      INTERNAL_SECRET:  ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+      RUST_LOG: info
+    depends_on:
+      db_history:
+        condition: service_healthy
+      oauth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8083/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
       - transcendance
 
@@ -150,21 +176,25 @@ services:
     container_name: transcendance_game_engine
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://diesel:dieselpass@db_history:5432/transcendance_history
-      WS_SERVICE_URL: http://ws-service:8082
-      USER_SERVICE_URL: http://oauth:8081
-      INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      WS_SERVICE_URL:    https://ws-service:8082
+      USER_SERVICE_URL:  https://oauth:8081
+      STATS_SERVICE_URL: https://stats-service:8083
+      INTERNAL_SECRET:   ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
       RUST_LOG: info
     depends_on:
-      db_history:
+      oauth:
         condition: service_healthy
-    ports:
-      - "8085:8080"
+      stats-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
       - transcendance
 
@@ -177,9 +207,11 @@ services:
     environment:
       WS_HOST: 0.0.0.0
       WS_PORT: 8082
-      USER_SERVICE_URL: http://oauth:8081
-      GAME_SERVICE_URL: http://game-engine:8080
-      CHAT_SERVICE_URL: http://chat:8090
+      USER_SERVICE_URL:  https://oauth:8081
+      GAME_SERVICE_URL:  https://game-engine:8080
+      CHAT_SERVICE_URL:  https://chat:8090
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
       RUST_LOG: info
     depends_on:
       oauth:
@@ -188,6 +220,8 @@ services:
         condition: service_healthy
       chat:
         condition: service_started
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
       - transcendance
 
@@ -202,10 +236,13 @@ services:
       - "8443:443"
     volumes:
       - ./reverse-proxy/certs:/etc/nginx/certs:ro
+      - ./reverse-proxy/conf/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       oauth:
         condition: service_healthy
       game-engine:
+        condition: service_healthy
+      stats-service:
         condition: service_healthy
       frontend:
         condition: service_started
@@ -225,7 +262,11 @@ services:
     environment:
       CHAT_HOST: 0.0.0.0
       CHAT_PORT: 8090
-      WS_SERVICE_URL: http://ws-service:8082
+      WS_SERVICE_URL: https://ws-service:8082
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
       - transcendance
 

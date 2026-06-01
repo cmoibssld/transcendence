@@ -1,13 +1,18 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useLocation } from "react-router-dom"
 import "../styles/Login.css"
 
 const Login = () => {
+    const location = useLocation()
+    const params = new URLSearchParams(location.search)
+    const oauthError = params.get("error") === "oauth_failed"
+    const oauthReason = params.get("reason") ?? ""
+
     const [form, setForm] = useState({ username: "", password: "" })
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
 
-    const authBaseUrl = import.meta.env.VITE_AUTH_URL ?? "https://localhost"
+    const authBaseUrl = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
 
     const handleChange = (e) => {
         const { name, value } = e.target
@@ -91,6 +96,11 @@ const Login = () => {
                         />
                     </div>
 
+                    {oauthError && (
+                      <p className="login-error" role="alert">
+                        Connexion GitHub échouée.{oauthReason ? ` (${oauthReason})` : ""}
+                      </p>
+                    )}
                     {error && <p className="login-error" role="alert">{error}</p>}
 
                     <button className="login-btn-primary" type="submit" disabled={loading}>

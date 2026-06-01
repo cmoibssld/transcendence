@@ -13,7 +13,7 @@ const Register = () => {
     const [success, setSuccess] = useState("")
     const [loading, setLoading] = useState(false)
 
-    const authBaseUrl = import.meta.env.VITE_AUTH_URL ?? "https://localhost"
+    const authBaseUrl = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
 
     const handleChange = (event) => {
         const { name, value } = event.target

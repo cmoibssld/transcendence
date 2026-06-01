@@ -1,5 +1,6 @@
 use actix::{Actor, ActorContext, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder};
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use actix_web_actors::ws;
 use log::info;
 use std::collections::HashMap;
@@ -21,14 +22,20 @@ struct AppState {
 #[rtype(result = "()")]
 struct ServerEvent(api::OutboundEvent);
 
+// Sent to an existing session when a new connection replaces it
+#[derive(Message)]
+#[rtype(result = "()")]
+struct ForceDisconnect;
+
 struct WsSession {
     user_id: u64,
-    state: AppState,
+    state:   AppState,
+    kicked:  bool, // true = replaced by a newer session, skip cleanup
 }
 
 impl WsSession {
     fn new(user_id: u64, state: AppState) -> Self {
-        Self { user_id, state }
+        Self { user_id, state, kicked: false }
     }
 
     fn send_error(&self, ctx: &mut ws::WebsocketContext<Self>, message: &str) {
@@ -45,21 +52,47 @@ impl Actor for WsSession {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         let mut clients = self.state.clients.lock().unwrap();
+
+        // If a session already exists for this user, kick it before replacing
+        if let Some(old_addr) = clients.get(&self.user_id) {
+            old_addr.do_send(ForceDisconnect);
+            info!("User {} — existing session kicked", self.user_id);
+        }
+
         clients.insert(self.user_id, ctx.address());
         info!("User {} connected", self.user_id);
+        drop(clients);
+
+        let client   = self.state.http_client.clone();
+        let user_url = self.state.user_service_url.clone();
+        let user_id  = self.user_id;
+        actix_web::rt::spawn(async move {
+            let _ = client
+                .post(format!("{}/auth/presence/online", user_url))
+                .json(&serde_json::json!({"user_id": user_id}))
+                .send()
+                .await;
+        });
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
+        info!("User {} disconnected (kicked={})", self.user_id, self.kicked);
+
+        if self.kicked {
+            // A newer session is already registered — don't touch the clients map
+            // and don't notify game/presence (user is still active via new session)
+            return;
+        }
+
         let mut clients = self.state.clients.lock().unwrap();
         clients.remove(&self.user_id);
-        info!("User {} disconnected", self.user_id);
+        drop(clients);
 
         let client    = self.state.http_client.clone();
         let game_url  = self.state.game_service_url.clone();
         let user_url  = self.state.user_service_url.clone();
         let user_id   = self.user_id;
         actix_web::rt::spawn(async move {
-            // Notify game engine: skip if in Betting, auto-stand if in Playing
             let _ = client
                 .post(format!("{}/ws/ingest", game_url))
                 .json(&serde_json::json!({
@@ -69,13 +102,30 @@ impl Actor for WsSession {
                 }))
                 .send()
                 .await;
-            // Update oauth presence
             let _ = client
                 .post(format!("{}/auth/presence/offline", user_url))
                 .json(&serde_json::json!({"user_id": user_id}))
                 .send()
                 .await;
         });
+    }
+}
+
+impl Handler<ForceDisconnect> for WsSession {
+    type Result = ();
+
+    fn handle(&mut self, _: ForceDisconnect, ctx: &mut ws::WebsocketContext<Self>) {
+        self.kicked = true;
+        // Notify the client so it can show a message before closing
+        ctx.text(serde_json::json!({
+            "kind": "system.kick",
+            "payload": { "reason": "another_session" }
+        }).to_string());
+        ctx.close(Some(ws::CloseReason {
+            code: ws::CloseCode::Policy,
+            description: Some("Replaced by another session".into()),
+        }));
+        ctx.stop();
     }
 }
 
@@ -212,13 +262,14 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(8082);
 
     let user_service_url =
-        std::env::var("USER_SERVICE_URL").unwrap_or_else(|_| "http://oauth:8081".to_string());
+        std::env::var("USER_SERVICE_URL").unwrap_or_else(|_| "https://oauth:8081".to_string());
     let game_service_url =
-        std::env::var("GAME_SERVICE_URL").unwrap_or_else(|_| "http://game-engine:8080".to_string());
+        std::env::var("GAME_SERVICE_URL").unwrap_or_else(|_| "https://game-engine:8080".to_string());
     let chat_service_url =
-        std::env::var("CHAT_SERVICE_URL").unwrap_or_else(|_| "http://chat:8090".to_string());
+        std::env::var("CHAT_SERVICE_URL").unwrap_or_else(|_| "https://chat:8090".to_string());
 
     let http_client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(5))
         .build()
         .expect("Failed to build HTTP client");
@@ -238,7 +289,18 @@ async fn main() -> std::io::Result<()> {
             .route("/ws", web::get().to(ws_index))
             .route("/dispatch", web::post().to(dispatch_event))
     })
-    .bind((host.as_str(), port))?
+    .bind_openssl((host.as_str(), port), build_tls())?
     .run()
     .await
+}
+
+fn build_tls() -> openssl::ssl::SslAcceptorBuilder {
+    let cert = std::env::var("TLS_CERT_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
+    let key  = std::env::var("TLS_KEY_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-key.pem".to_string());
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder.set_private_key_file(&key,  SslFiletype::PEM).unwrap();
+    builder.set_certificate_chain_file(&cert).unwrap();
+    builder
 }

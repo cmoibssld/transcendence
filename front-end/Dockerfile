@@ -22,7 +22,8 @@ ENV VITE_GAME_URL=$VITE_GAME_URL
 ENV VITE_CHAT_URL=$VITE_CHAT_URL
 ENV VITE_WS_URL=$VITE_WS_URL
 
-# Build the application
+# Build — bust layer cache when source files change
+COPY src ./src
 RUN npm run build
 
 # Production stage
