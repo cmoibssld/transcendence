@@ -29,7 +29,6 @@ function resizeImageToDataUrl(file, maxSize = 256) {
     const img = new Image()
     const url = URL.createObjectURL(file)
     img.onload = () => {
-      URL.revokeObjectURL(url)
       const size = Math.min(img.width, img.height)
       const sx   = (img.width  - size) / 2
       const sy   = (img.height - size) / 2
@@ -38,6 +37,7 @@ function resizeImageToDataUrl(file, maxSize = 256) {
       canvas.height = maxSize
       const ctx = canvas.getContext('2d')
       ctx.drawImage(img, sx, sy, size, size, 0, 0, maxSize, maxSize)
+      URL.revokeObjectURL(url)
       resolve(canvas.toDataURL('image/jpeg', 0.88))
     }
     img.onerror = reject
@@ -110,6 +110,24 @@ export default function Profile() {
     setSaveError('')
     setSaveSuccess('')
 
+    if (form.new_password) {
+      if (form.new_password.length < 8) {
+        setSaveError('Le nouveau mot de passe doit contenir au moins 8 caractères.')
+        setSaving(false)
+        return
+      }
+      if (form.new_password.length > 128) {
+        setSaveError('Le nouveau mot de passe est trop long (128 caractères max).')
+        setSaving(false)
+        return
+      }
+      if (!form.current_password) {
+        setSaveError('Mot de passe actuel requis pour changer le mot de passe.')
+        setSaving(false)
+        return
+      }
+    }
+
     const body = {}
     if (form.username !== data.username) body.username = form.username.trim()
     if (form.avatar_url !== (data.avatar_url ?? '')) body.avatar_url = form.avatar_url
@@ -145,6 +163,7 @@ export default function Profile() {
       }))
       localStorage.setItem('username',   json.username)
       localStorage.setItem('avatar_url', json.avatar_url ?? '')
+      window.dispatchEvent(new Event('profile-updated'))
       setEditing(false)
       setSaveSuccess('Profil mis à jour avec succès.')
     } catch (err) {

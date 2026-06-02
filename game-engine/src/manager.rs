@@ -15,6 +15,7 @@ pub struct GameData {
     tables: HashMap<u32, GameManager>,
     next_table_id: u32,
     user_sessions: HashMap<u64, (u32, u32)>,  // user_id → (table_id, player_id)
+    max_tables: usize,
 }
 
 pub struct IngestResult {
@@ -54,7 +55,7 @@ fn random_unique_key(existing: &HashMap<u32, u64>) -> u32 {
 impl GameManager {
     fn new(table_id: u32) -> Self {
         let info = GameInfo::new(table_id);
-        let deck = Deck::new(54);
+        let deck = Deck::standard_shoe();
         // Dealer draws cards in start_playing(), not at table creation
         GameManager { players: HashMap::with_capacity(3), info, deck, open: true, round_nb: 1 }
     }
@@ -85,8 +86,30 @@ impl GameManager {
         let round_nb = self.round_nb as i32;
         let table_id = self.info.table_id() as i32;
 
-        match self.info.pause_player(&player_id) {
-            Some(0) => {
+        let first = match self.info.pause_player(&player_id) {
+            Some(n) => n,
+            None => return (
+                serde_json::json!({ "kind": "game.error", "payload": { "message": "player cannot stand" } }),
+                None, None, vec![],
+            ),
+        };
+
+        // Auto-advance through any following players who already hold 21+
+        // (natural blackjack or a hand totalling 21) — they cannot act, so
+        // stand them automatically instead of waiting for a client action.
+        let mut remaining = first;
+        while remaining > 0 {
+            let cur = self.info.get_current_player();
+            let cur_pts = self.info.players_points().get(&cur).copied().unwrap_or(0);
+            if cur_pts >= 21 {
+                remaining = self.info.pause_player(&cur).unwrap_or(0);
+            } else {
+                break;
+            }
+        }
+
+        match remaining {
+            0 => {
                 // Last player stood — dealer plays, compute results
                 self.info.dealer_final(&mut self.deck);
                 let dealer_pts = self.info.dealer_points();
@@ -184,14 +207,10 @@ impl GameManager {
 
                 (round_end, Some(post), Some(history), coin_deltas)
             }
-            Some(_) => {
+            _ => {
                 let state = self.state_with_users();
                 (serde_json::json!({ "kind": "game.state", "payload": state }), None, None, vec![])
             }
-            None => (
-                serde_json::json!({ "kind": "game.error", "payload": { "message": "player cannot stand" } }),
-                None, None, vec![],
-            ),
         }
     }
 
@@ -206,11 +225,54 @@ impl GameManager {
         log::info!("Table {} restarted, round {}", self.info.table_id(), self.round_nb);
     }
 
+    /// Called right after the initial deal: if the first player to act already
+    /// holds 21 (natural blackjack), stand them automatically. `stand()` then
+    /// cascades through any following players who also hold 21. Returns the
+    /// stand result if triggered, or None if the first player can act normally.
+    fn auto_stand_if_blackjack(&mut self) -> Option<(serde_json::Value, Option<serde_json::Value>, Option<HistoryData>, Vec<(u32, u64)>)> {
+        if self.info.phase != Phase::Playing {
+            return None;
+        }
+        let cur = self.info.get_current_player();
+        let pts = self.info.players_points().get(&cur).copied().unwrap_or(0);
+        if pts >= 21 {
+            Some(self.stand(cur))
+        } else {
+            None
+        }
+    }
+
     // Serialize game state and inject the player_id → user_id map so the frontend
     // can resolve usernames without knowing the internal player_id ↔ user_id mapping.
     fn state_with_users(&self) -> serde_json::Value {
         let mut v = serde_json::to_value(&self.info).unwrap_or_default();
         if let Some(obj) = v.as_object_mut() {
+            // ── Anti-cheat: never leak the dealer's hole card during play ──
+            // While the round is ongoing only the face-up card is known to
+            // players. We keep the up-card and replace every other dealer card
+            // with a neutral placeholder ({value:0,color:0}, rendered face-down
+            // by the client) so the real hole card never reaches the browser.
+            // The full hand is revealed only at round_end, which serializes
+            // `self.info` directly (not through this method).
+            if self.info.phase == Phase::Playing {
+                if let Some(dealer) = obj.get_mut("dealer_cards").and_then(|d| d.as_array_mut()) {
+                    if dealer.len() > 1 {
+                        let up = dealer[0].clone();
+                        let hidden = dealer.len() - 1;
+                        dealer.clear();
+                        dealer.push(up);
+                        for _ in 0..hidden {
+                            dealer.push(serde_json::json!({ "value": 0, "color": 0 }));
+                        }
+                    }
+                }
+                // Only expose the up-card's point value, not the full total.
+                obj.insert(
+                    "dealer_points".to_string(),
+                    serde_json::json!(self.info.dealer_up_card_points()),
+                );
+            }
+
             let map: serde_json::Map<String, serde_json::Value> = self.players.iter()
                 .map(|(pid, uid)| (pid.to_string(), serde_json::json!(uid)))
                 .collect();
@@ -222,13 +284,18 @@ impl GameManager {
 
 impl GameData {
     pub fn new() -> Self {
+        let max_tables = std::env::var("MAX_TABLES")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(3)
+            .max(1);
         let mut tables = HashMap::new();
         tables.insert(1u32, GameManager::new(1));
-        GameData { tables, next_table_id: 2, user_sessions: HashMap::new() }
+        GameData { tables, next_table_id: 2, user_sessions: HashMap::new(), max_tables }
     }
 
     fn add_table(&mut self) -> Option<u32> {
-        if self.tables.len() >= 3 { return None; }
+        if self.tables.len() >= self.max_tables { return None; }
         let id = self.next_table_id;
         self.tables.insert(id, GameManager::new(id));
         self.next_table_id += 1;
@@ -309,7 +376,17 @@ impl GameData {
         };
 
         let (player_id, table_full) = {
-            let table = self.tables.get_mut(&table_id).unwrap();
+            let table = match self.tables.get_mut(&table_id) {
+                Some(t) => t,
+                None => return IngestResult {
+                    personal: Some(serde_json::json!({
+                        "kind": "game.error",
+                        "payload": { "message": "Table no longer available" }
+                    })),
+                    broadcast: None, post_broadcast: None,
+                    audience: vec![user_id], history: None, coin_updates: vec![],
+                },
+            };
             let pid = table.add_player(user_id);
             (pid, !table.open)
         };
@@ -367,24 +444,49 @@ impl GameData {
             },
         };
 
-        let (audience, state_val) = {
-            let table = match self.tables.get_mut(&table_id) {
-                Some(t) => t,
-                None => return IngestResult { personal: None, broadcast: None, post_broadcast: None, audience: vec![], history: None, coin_updates: vec![] },
-            };
-
-            let all_done = table.info.place_bet(player_id, amount);
-            if all_done {
-                // All players have bet — dealer draws, then deal initial cards
-                table.info.start_playing(&mut table.deck);
-                let ids: Vec<u32> = table.players.keys().cloned().collect();
-                for pid in ids {
-                    table.info.deal_to_player(pid, &mut table.deck, 2);
-                }
-            }
-            (table.audience(), table.state_with_users())
+        let table = match self.tables.get_mut(&table_id) {
+            Some(t) => t,
+            None => return IngestResult { personal: None, broadcast: None, post_broadcast: None, audience: vec![], history: None, coin_updates: vec![] },
         };
 
+        // Reject (→ triggers the caller's refund) if this player has no pending
+        // bet to place: wrong phase, already bet, or no longer in the round.
+        // Without this, coins deducted up-front in ws_ingest would be lost when
+        // place_bet() silently no-ops (e.g. a duplicate or out-of-phase bet).
+        if table.info.phase != Phase::Betting || !table.info.pending_bets.contains(&player_id) {
+            return IngestResult {
+                personal: Some(serde_json::json!({
+                    "kind": "game.error", "payload": { "message": "No pending bet to place" }
+                })),
+                broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
+            };
+        }
+
+        let all_done = table.info.place_bet(player_id, amount);
+        if all_done {
+            // All players have bet — dealer draws, then deal initial cards
+            table.info.start_playing(&mut table.deck);
+            let ids: Vec<u32> = table.players.keys().cloned().collect();
+            for pid in ids {
+                table.info.deal_to_player(pid, &mut table.deck, 2);
+            }
+            // If the first player to act already holds 21, auto-stand (cascades).
+            if let Some((broadcast, post, history, raw_deltas)) = table.auto_stand_if_blackjack() {
+                let coin_updates: Vec<(u64, i64)> = raw_deltas.into_iter()
+                    .filter_map(|(pid, payout)| Some((*table.players.get(&pid)?, payout as i64)))
+                    .collect();
+                let audience = table.audience();
+                return IngestResult {
+                    personal: None,
+                    broadcast: Some(broadcast),
+                    post_broadcast: post,
+                    audience, history, coin_updates,
+                };
+            }
+        }
+
+        let audience  = table.audience();
+        let state_val = table.state_with_users();
         IngestResult {
             personal: None,
             broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
@@ -436,6 +538,19 @@ impl GameData {
                 for pid in ids {
                     table.info.deal_to_player(pid, &mut table.deck, 2);
                 }
+                // If the first player to act already holds 21, auto-stand (cascades).
+                if let Some((broadcast, post, history, raw_deltas)) = table.auto_stand_if_blackjack() {
+                    let coin_updates: Vec<(u64, i64)> = raw_deltas.into_iter()
+                        .filter_map(|(pid, payout)| Some((*table.players.get(&pid)?, payout as i64)))
+                        .collect();
+                    let audience = table.audience();
+                    return IngestResult {
+                        personal: None,
+                        broadcast: Some(broadcast),
+                        post_broadcast: post,
+                        audience, history, coin_updates,
+                    };
+                }
                 let audience  = table.audience();
                 let state_val = table.state_with_users();
                 IngestResult {
@@ -468,6 +583,17 @@ impl GameData {
                 broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
             },
         };
+
+        // If the player already has 21 (blackjack or otherwise), auto-stand
+        // instead of drawing — this handles the case where the client sends
+        // game.hit even though the player shouldn't act.
+        let pre_pts = self.tables
+            .get(&table_id)
+            .and_then(|t| t.info.players_points().get(&player_id).copied())
+            .unwrap_or(0);
+        if pre_pts >= 21 {
+            return self.do_stay(user_id);
+        }
 
         let (hit_ok, points, audience, state_val) = {
             let table = match self.tables.get_mut(&table_id) {
@@ -526,6 +652,18 @@ impl GameData {
             let (ev, post, hist, deltas) = table.stand(player_id);
             (aud, ev, post, hist, deltas)
         };
+
+        // A "player cannot stand" outcome (already stood / not their turn) must
+        // not be broadcast to the whole table — return it only to the caller.
+        // This also makes redundant game.stay messages a harmless no-op.
+        let is_error = broadcast.get("kind").and_then(|k| k.as_str()) == Some("game.error");
+        if is_error {
+            return IngestResult {
+                personal: Some(broadcast),
+                broadcast: None, post_broadcast: None,
+                audience: vec![user_id], history: None, coin_updates: vec![],
+            };
+        }
 
         // All payouts from stand() are positive — direct cast, same as do_double
         let coin_updates: Vec<(u64, i64)> = raw_deltas.into_iter().filter_map(|(pid, payout)| {

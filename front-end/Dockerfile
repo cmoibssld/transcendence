@@ -34,8 +34,11 @@ WORKDIR /app
 # Install a lightweight HTTP server to serve the static files
 RUN npm install -g serve
 
-# Copy built app from builder stage
-COPY --from=builder /app/dist ./dist
+# Copy built app from builder stage (owned by the built-in non-root `node` user)
+COPY --from=builder --chown=node:node /app/dist ./dist
+
+# Drop root privileges — serve static files as the unprivileged node user
+USER node
 
 # Expose port
 EXPOSE 3000

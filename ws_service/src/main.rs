@@ -115,22 +115,28 @@ impl Actor for WsSession {
         let user_id         = self.user_id;
         let internal_secret = self.state.internal_secret.clone();
         actix_web::rt::spawn(async move {
-            let _ = client
-                .post(format!("{}/ws/ingest", game_url))
-                .header("X-Internal-Secret", &internal_secret)
-                .json(&serde_json::json!({
-                    "user_id": user_id,
-                    "kind":    "game.disconnect",
-                    "payload": {}
-                }))
-                .send()
-                .await;
-            let _ = client
-                .post(format!("{}/auth/presence/offline", user_url))
-                .header("X-Internal-Secret", &internal_secret)
-                .json(&serde_json::json!({"user_id": user_id}))
-                .send()
-                .await;
+            tokio::join!(
+                async {
+                    let _ = client
+                        .post(format!("{}/ws/ingest", game_url))
+                        .header("X-Internal-Secret", &internal_secret)
+                        .json(&serde_json::json!({
+                            "user_id": user_id,
+                            "kind":    "game.disconnect",
+                            "payload": {}
+                        }))
+                        .send()
+                        .await;
+                },
+                async {
+                    let _ = client
+                        .post(format!("{}/auth/presence/offline", user_url))
+                        .header("X-Internal-Secret", &internal_secret)
+                        .json(&serde_json::json!({"user_id": user_id}))
+                        .send()
+                        .await;
+                }
+            );
         });
     }
 }

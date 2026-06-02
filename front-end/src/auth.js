@@ -50,13 +50,32 @@ export async function refreshAccessToken() {
 
 export function logout() {
     sessionStorage.removeItem("auth_ok")
-    fetch(`${AUTH_URL}/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-    }).finally(() => {
-        localStorage.removeItem("username")
-        localStorage.removeItem("avatar_url")
-        localStorage.removeItem("user_id")
-        window.location.href = "/login"
-    })
+    const userId = Number(localStorage.getItem("user_id"))
+
+    const doLogout = () =>
+        fetch(`${AUTH_URL}/auth/logout`, { method: "POST", credentials: "include" })
+            .catch(() => {})
+            .finally(() => {
+                localStorage.removeItem("username")
+                localStorage.removeItem("avatar_url")
+                localStorage.removeItem("user_id")
+                window.location.href = "/login"
+            })
+
+    if (userId) {
+        // Presence/offline FIRST while the access token is still valid,
+        // then logout (which clears the cookie). Parallel execution was
+        // unreliable because the browser could apply the cleared cookie
+        // before the server processed the presence request.
+        fetch(`${AUTH_URL}/auth/presence/offline`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ user_id: userId }),
+        })
+            .catch(() => {})
+            .finally(doLogout)
+    } else {
+        doLogout()
+    }
 }

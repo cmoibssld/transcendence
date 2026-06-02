@@ -19,6 +19,9 @@ RUN apt-get update \
 
 COPY --from=builder /app/target/release/transcendence-chat /usr/local/bin/transcendence-chat
 
+RUN useradd -m -u 1001 chatuser && chown chatuser:chatuser /usr/local/bin/transcendence-chat
+USER chatuser
+
 EXPOSE 8090
 
 CMD ["transcendence-chat"]

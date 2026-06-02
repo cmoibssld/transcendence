@@ -13,6 +13,20 @@ type DbPool = Pool<ConnectionManager<PgConnection>>;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
+fn secrets_equal(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let max_len = a.len().max(b.len());
+    if max_len == 0 { return false; }
+    let mut result = a.len() ^ b.len();
+    for i in 0..max_len {
+        let ca = if i < a.len() { a[i] } else { 0 };
+        let cb = if i < b.len() { b[i] } else { 0 };
+        result |= (ca ^ cb) as usize;
+    }
+    result == 0
+}
+
 struct ServiceConfig {
     user_service_url: String,
     internal_secret:  String,
@@ -154,7 +168,7 @@ fn save_round(pool: &DbPool, h: &RoundRecord) -> Result<(), diesel::result::Erro
     use crate::schema::user_stats::dsl as us;
     use diesel::upsert::excluded;
 
-    let mut conn = pool.get().expect("DB connection failed");
+    let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
     let round_id: i64 = diesel::insert_into(gr::game_rounds)
         .values(models::NewGameRound {
@@ -231,7 +245,7 @@ async fn record_round(
     let secret = req.headers().get("X-Internal-Secret")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if secret != cfg.internal_secret {
+    if !secrets_equal(secret, &cfg.internal_secret) {
         return HttpResponse::Unauthorized().finish();
     }
 
@@ -258,7 +272,7 @@ async fn get_history(
 
     let rows = web::block(move || {
         use crate::schema::{game_rounds, round_players};
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         round_players::table
             .inner_join(game_rounds::table)
             .filter(round_players::user_id.eq(user_id))
@@ -307,7 +321,7 @@ async fn get_stats_me(
 
     let row = web::block(move || {
         use crate::schema::user_stats::dsl as us;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         us::user_stats
             .filter(us::user_id.eq(user_id))
             .select((us::wins, us::losses, us::pushes, us::total_wagered, us::total_won, us::games_played))
@@ -361,7 +375,7 @@ async fn get_friend_stats(
 
     let row = web::block(move || {
         use crate::schema::user_stats::dsl as us;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         us::user_stats
             .filter(us::user_id.eq(friend_id))
             .select((us::wins, us::losses, us::pushes, us::total_wagered, us::total_won, us::games_played))
@@ -396,7 +410,7 @@ async fn leaderboard_wins(
     let limit = query.limit.clamp(1, 100);
     let rows = web::block(move || {
         use crate::schema::user_stats::dsl as us;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         us::user_stats
             .order(us::wins.desc())
             .limit(limit)
@@ -416,7 +430,7 @@ async fn leaderboard_wagered(
     let limit = query.limit.clamp(1, 100);
     let rows = web::block(move || {
         use crate::schema::user_stats::dsl as us;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         us::user_stats
             .order(us::total_wagered.desc())
             .limit(limit)
@@ -438,7 +452,7 @@ async fn leaderboard_gains(
         use crate::schema::user_stats::dsl as us;
         use diesel::dsl::sql;
         use diesel::sql_types::BigInt;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         us::user_stats
             .order(sql::<BigInt>("total_won - total_wagered").desc())
             .filter(sql::<diesel::sql_types::Bool>("total_won - total_wagered > 0"))

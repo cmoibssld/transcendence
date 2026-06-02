@@ -71,16 +71,18 @@ function useGlobalPresence() {
         clearInterval(pingRef.current)
         return
       }
-      fetch(`${AUTH_URL}/auth/presence/online`, {
+      // Use apiFetch so the access token is silently refreshed if expired.
+      // A plain fetch returning 401 would fail silently and leave the user
+      // absent from the PresenceMap until the TTL expires.
+      apiFetch(`${AUTH_URL}/auth/presence/online`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ user_id: currentId }),
       }).catch(() => {})
     }
 
     ping()
-    pingRef.current = setInterval(ping, 4 * 60 * 1000)
+    pingRef.current = setInterval(ping, 30 * 1000)
 
     const goOffline = () =>
       fetch(`${AUTH_URL}/auth/presence/offline`, {
@@ -130,7 +132,11 @@ function ProtectedRoute({ children }) {
   }, [userId, navigate])
 
   if (!userId) return <Navigate to="/login" replace />
-  if (!verified) return null
+  if (!verified) return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="animate-spin rounded-full h-10 w-10 border-4 border-transparent border-t-white opacity-60" />
+    </div>
+  )
   return children
 }
 

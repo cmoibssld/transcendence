@@ -96,7 +96,7 @@ function FriendStatsPanel({ username, onClose }) {
             <span className="fstat-value">{fmtCoin(stats.total_wagered)}</span>
           </div>
           <div className="fstat-card">
-            <span className="fstat-label">Total won</span>
+            <span className="fstat-label">Total payout</span>
             <span className="fstat-value" style={{ color: "#f2c461" }}>{fmtCoin(stats.total_won)}</span>
           </div>
           <div className="fstat-card fstat-card--wide">

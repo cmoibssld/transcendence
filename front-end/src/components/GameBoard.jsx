@@ -708,10 +708,13 @@ export default function GameBoard() {
     return () => clearInterval(id)
   }, [joined, phase, selfPendingBet, roundEnd, gameInfo?.bet_phase_started_at])
 
+  // Note: auto-standing at 21 (blackjack, hit-to-21, double) is handled
+  // authoritatively server-side. The frontend only disables the actions.
+
   // ── Turn timer ──────────────────────────────────────────────────────────────
   const TURN_TIMER_MAX = 30
   useEffect(() => {
-    if (!isMyTurn) { setTurnTimer(null); return }
+    if (!isMyTurn || selfPoints >= 21) { setTurnTimer(null); return }
     setTurnTimer(TURN_TIMER_MAX)
     const id = setInterval(() => {
       setTurnTimer(t => {
@@ -798,7 +801,7 @@ export default function GameBoard() {
 
         {/* ── arena ───────────────────────────────────────────────────── */}
         <div className="gb-arena">
-          {coins !== null && coins <= 0 && !roundEnd && (
+          {coins !== null && coins <= 0 && !roundEnd && phase === "Betting" && (
             <div className="outcome-overlay outcome--lose" role="alert">
               <div className="outcome-card">
                 <h2 className="outcome-title">Aucun coin</h2>
@@ -918,7 +921,7 @@ export default function GameBoard() {
               type="button"
               className="gb-btn gb-btn--hit"
               onClick={() => send("game.hit")}
-              disabled={!joined || !isMyTurn}
+              disabled={!joined || !isMyTurn || selfPoints >= 21}
             >Hit</button>
             <button
               type="button"

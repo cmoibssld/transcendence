@@ -1,3 +1,6 @@
+/* Tailwind utilities only — preflight excluded to preserve the existing design system */
+@import "tailwindcss/utilities";
+
 :root {
     color-scheme: dark;
     --bg-0: #0c0c0e;

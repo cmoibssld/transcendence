@@ -148,8 +148,8 @@ const Register = () => {
                         onChange={handleChange}
                     />
 
-                    {error && <p className="login-error">{error}</p>}
-                    {success && <p className="login-success">{success}</p>}
+                    {error && <p className="login-error text-sm">{error}</p>}
+                    {success && <p className="login-success text-sm">{success}</p>}
 
                     <button className="primary-button" type="submit" disabled={loading}>
                         {loading ? "Creation..." : "Creer un compte"}

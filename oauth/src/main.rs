@@ -30,7 +30,7 @@ type CodeStore = Mutex<HashMap<String, (AuthResponse, i32, Instant)>>;
 type LoginAttempts = Mutex<HashMap<String, (u32, Instant)>>;
 // Maps user_id → last heartbeat time; entries older than PRESENCE_TTL are considered offline
 type PresenceMap = Mutex<HashMap<i32, Instant>>;
-const PRESENCE_TTL: StdDuration = StdDuration::from_secs(5 * 60);
+const PRESENCE_TTL: StdDuration = StdDuration::from_secs(45);
 
 #[derive(Deserialize)]
 struct ExchangeQuery {
@@ -209,7 +209,7 @@ async fn issue_tokens(
 
     web::block(move || {
         use crate::schema::refresh_tokens::dsl as rt_dsl;
-        let mut conn = pool.get().expect("Failed to get DB connection from pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         let new_token = models::NewRefreshToken {
             user_id,
             token_hash: &token_hash_clone,
@@ -249,7 +249,7 @@ async fn refresh_token(
     let user = web::block(move || {
         use crate::schema::refresh_tokens::dsl as rt_dsl;
         use crate::schema::users::dsl as users_dsl;
-        let mut conn = pool_clone.get().expect("Failed to get DB connection from pool");
+        let mut conn = pool_clone.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         let token = rt_dsl::refresh_tokens
             .filter(rt_dsl::token_hash.eq(&token_hash))
             .filter(rt_dsl::revoked_at.is_null())
@@ -344,7 +344,7 @@ async fn register(
 
     let result = web::block(move || {
         use crate::schema::users::dsl as users_dsl;
-        let mut conn = pool.get().expect("Failed to get DB connection from pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         let new_user = models::NewUser {
             username: &username,
             email: &email,
@@ -405,7 +405,7 @@ async fn login(
     let pool_clone = pool.clone();
     let user_result = web::block(move || {
         use crate::schema::users::dsl as users_dsl;
-        let mut conn = pool_clone.get().expect("Failed to get DB connection from pool");
+        let mut conn = pool_clone.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         users_dsl::users
             .filter(users_dsl::username.eq(&login_data.username))
             .first::<models::User>(&mut conn)
@@ -547,7 +547,7 @@ async fn github_callback(
     let user = web::block(move || {
         use crate::schema::users::dsl as users_dsl;
         use diesel::upsert::excluded;
-        let mut conn = pool_clone.get().expect("Failed to get DB connection from pool");
+        let mut conn = pool_clone.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         let new_user = models::NewUser {
             username: &username,
             email: &email,
@@ -560,10 +560,11 @@ async fn github_callback(
             .values(&new_user)
             .on_conflict(users_dsl::email)
             .do_update()
-            .set((
+            .set(
+                // Only refresh the GitHub username — never overwrite a custom
+                // avatar the user may have set from their profile page.
                 users_dsl::username.eq(excluded(users_dsl::username)),
-                users_dsl::avatar.eq(excluded(users_dsl::avatar)),
-            ))
+            )
             .returning(models::User::as_returning())
             .get_result::<models::User>(&mut conn)
     })
@@ -610,7 +611,7 @@ async fn logout(
             let pool = pool.clone();
             let _ = web::block(move || {
                 use crate::schema::refresh_tokens::dsl as rt_dsl;
-                let mut conn = pool.get().expect("Failed to get DB connection from pool");
+                let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
                 diesel::update(rt_dsl::refresh_tokens.filter(rt_dsl::token_hash.eq(&token_hash)))
                     .set(rt_dsl::revoked_at.eq(Utc::now()))
                     .execute(&mut conn)
@@ -705,7 +706,7 @@ async fn get_profile(
     let user_id = claims.sub as i32;
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         u::users
             .filter(u::id.eq(user_id))
             .select((u::username, u::avatar, u::money, u::bio, u::provider))
@@ -739,9 +740,15 @@ async fn patch_profile(
     // Input validation
     if let Some(ref u) = data.username {
         let trimmed = u.trim();
-        if trimmed.is_empty() || trimmed.len() > 50 {
+        if trimmed.is_empty() || trimmed.len() < 2 || trimmed.len() > 32 {
             return HttpResponse::BadRequest()
-                .json(serde_json::json!({"error": "username must be 1-50 characters"}));
+                .json(serde_json::json!({"error": "username must be 2-32 characters"}));
+        }
+        // Same charset restriction as registration — prevents control chars,
+        // homoglyph spoofing and HTML-looking display names.
+        if !trimmed.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Username may only contain letters, digits, _ and -"}));
         }
     }
     if let Some(ref b) = data.bio {
@@ -773,11 +780,19 @@ async fn patch_profile(
             return HttpResponse::BadRequest()
                 .json(serde_json::json!({"error": "new_password must not be empty"}));
         }
+        if new_pass.len() < 8 {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Password must be at least 8 characters"}));
+        }
+        if new_pass.len() > 128 {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Password too long"}));
+        }
 
         let pool_clone = pool.clone();
         let fetch = web::block(move || {
             use crate::schema::users::dsl as u;
-            let mut conn = pool_clone.get().expect("DB pool");
+            let mut conn = pool_clone.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
             u::users
                 .filter(u::id.eq(user_id))
                 .select((u::password_hash, u::provider))
@@ -819,7 +834,7 @@ async fn patch_profile(
 
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         if let Some(ref new_username) = username {
             let exists: bool = diesel::select(diesel::dsl::exists(
@@ -892,7 +907,7 @@ async fn get_balance(
     let user_id = claims.sub as i32;
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         u::users.filter(u::id.eq(user_id)).select(u::money).first::<i64>(&mut conn)
     }).await;
 
@@ -926,7 +941,7 @@ async fn internal_friend_check(
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
         use crate::schema::friendships::dsl as f;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         let target_id: i32 = u::users
             .filter(u::username.eq(&target_username))
@@ -968,7 +983,7 @@ async fn internal_users(
     let ids = body.into_inner().user_ids;
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         u::users
             .filter(u::id.eq_any(&ids))
             .select((u::id, u::username, u::avatar))
@@ -1044,7 +1059,7 @@ async fn update_coins(
 
     let result = web::block(move || -> Result<bool, diesel::result::Error> {
         use crate::schema::users::dsl as u;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         let rows = if delta < 0 {
             // Deduction: only update if balance won't go negative
@@ -1162,7 +1177,7 @@ async fn lookup_user_by_id(
     let id = query.id;
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         u::users
             .filter(u::id.eq(id))
             .select((u::id, u::username, u::avatar))
@@ -1221,7 +1236,7 @@ async fn get_presence(
 
     let result = web::block(move || {
         use crate::schema::friendships::dsl as f;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         let sent: Vec<i32> = f::friendships
             .filter(f::requester_id.eq(me).and(f::status.eq(models::FriendshipStatus::Accepted)))
@@ -1274,7 +1289,7 @@ async fn lookup_user(
 
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
         u::users
             .filter(u::username.eq(&username))
             .select((u::id, u::username, u::avatar))
@@ -1353,7 +1368,16 @@ async fn friend_request(
     req: HttpRequest,
     pool: web::Data<DbPool>,
     query: web::Query<UserLookupQuery>,
+    attempts: web::Data<LoginAttempts>,
 ) -> impl Responder {
+    let ip = req.connection_info().realip_remote_addr()
+        .unwrap_or("unknown")
+        .to_string();
+    if !check_rate_limit(&attempts, &ip) {
+        return HttpResponse::TooManyRequests()
+            .json(serde_json::json!({"error": "Too many requests, please wait"}));
+    }
+
     let me = match extract_user_id(&req) {
         Some(id) => id,
         None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
@@ -1363,7 +1387,7 @@ async fn friend_request(
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
         use crate::schema::friendships::dsl as f;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         let target: i32 = u::users
             .filter(u::username.eq(&target_username))
@@ -1406,7 +1430,7 @@ async fn friend_accept(
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
         use crate::schema::friendships::dsl as f;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         let requester: i32 = u::users
             .filter(u::username.eq(&target_username))
@@ -1451,7 +1475,7 @@ async fn friend_decline(
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
         use crate::schema::friendships::dsl as f;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         let other: i32 = u::users
             .filter(u::username.eq(&target_username))
@@ -1489,7 +1513,7 @@ async fn list_friends(
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
         use crate::schema::friendships::dsl as f;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         // Friends where I am requester
         let sent: Vec<i32> = f::friendships
@@ -1539,7 +1563,7 @@ async fn list_pending(
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
         use crate::schema::friendships::dsl as f;
-        let mut conn = pool.get().expect("DB pool");
+        let mut conn = pool.get().map_err(|e| diesel::result::Error::QueryBuilderError(Box::new(e)))?;
 
         let requester_ids: Vec<i32> = f::friendships
             .filter(f::addressee_id.eq(me).and(f::status.eq(models::FriendshipStatus::Pending)))
@@ -1636,8 +1660,16 @@ async fn main() -> std::io::Result<()> {
             .wrap(
                 Cors::default()
                     .allowed_origin_fn(|origin, _| {
-                        let b = origin.as_bytes();
-                        b.starts_with(b"https://localhost") || b.starts_with(b"http://localhost")
+                        // Exact-match allowlist. A prefix check like
+                        // starts_with("http://localhost") would wrongly accept
+                        // "http://localhost.attacker.com" with credentials.
+                        matches!(
+                            origin.to_str(),
+                            Ok("https://localhost:8443")
+                                | Ok("http://localhost:8443")
+                                | Ok("https://localhost:3000")
+                                | Ok("http://localhost:3000")
+                        )
                     })
                     .allowed_methods(vec!["GET", "POST", "PATCH", "OPTIONS"])
                     .allowed_headers(vec![

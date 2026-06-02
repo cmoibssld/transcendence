@@ -1,3 +1,6 @@
 /target
 .env
 .env.template
+
+# Build artifact (should never be committed)
+*.rlib

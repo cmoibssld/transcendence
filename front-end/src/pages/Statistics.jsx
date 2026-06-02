@@ -102,7 +102,7 @@ export default function Statistics() {
               <StatCard label="Losses"        value={fmt(myStats.losses)}       accent="#e05a5a" />
               <StatCard label="Pushes"        value={fmt(myStats.pushes)} />
               <StatCard label="Total wagered" value={fmtCoin(myStats.total_wagered)} />
-              <StatCard label="Total won"     value={fmtCoin(myStats.total_won)}     accent="#f2c461" />
+              <StatCard label="Total payout"  value={fmtCoin(myStats.total_won)}     accent="#f2c461" />
               <StatCard
                 label="Net gain"
                 value={fmtCoin((myStats.total_won ?? 0) - (myStats.total_wagered ?? 0))}
@@ -163,7 +163,9 @@ export default function Statistics() {
                           </td>
                           <td className="lb-secondary">{fmt(r.games_played)}</td>
                           <td className="lb-secondary">{fmt(r.wins)}</td>
-                          <td className="lb-value lb-gain-positive">+{fmtCoin(gain)}</td>
+                          <td className={`lb-value ${gain >= 0 ? "lb-gain-positive" : "lb-gain-negative"}`}>
+                            {gain >= 0 ? "+" : ""}{fmtCoin(gain)}
+                          </td>
                         </tr>
                       );
                     })}

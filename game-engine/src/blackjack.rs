@@ -3,6 +3,11 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use rand::prelude::*;
 
+/// Number of 52-card decks in the shoe (standard casino blackjack uses 6).
+const SHOE_DECKS: usize = 6;
+/// Reshuffle once roughly a quarter of the shoe remains.
+const RESHUFFLE_AT: usize = SHOE_DECKS * 52 / 4;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Ord, Eq, PartialOrd, Clone)]
 pub struct Card {
     pub value: u8,
@@ -56,20 +61,25 @@ impl Deck {
         self.deck.shuffle(&mut rng);
     }
 
+    /// A freshly shuffled standard 6-deck shoe.
+    pub fn standard_shoe() -> Self {
+        Deck::new(SHOE_DECKS)
+    }
+
     pub fn draw(&mut self) -> Card {
         if let Some(card) = self.deck.pop() {
             return card;
         }
-        *self = Deck::new(54);
+        *self = Deck::new(SHOE_DECKS);
         self.deck.pop().expect("Deck should not be empty")
     }
 
     pub fn half_draw(&self) -> bool {
-        self.deck.len() <= 54
+        self.deck.len() <= RESHUFFLE_AT
     }
 
     pub fn another_shuffle(&mut self) {
-        *self = Deck::new(54);
+        *self = Deck::new(SHOE_DECKS);
     }
 }
 
@@ -110,6 +120,15 @@ impl GameInfo {
 
     pub fn table_id(&self) -> u32 { self.table_id }
     pub fn dealer_points(&self) -> u32 { self.dealer_points }
+
+    /// Points value of the dealer's face-up card only. Used to mask the hole
+    /// card from clients during the Playing phase (anti-cheat).
+    pub fn dealer_up_card_points(&self) -> u32 {
+        self.dealer_cards
+            .first()
+            .map(|c| points_sum(std::slice::from_ref(c)))
+            .unwrap_or(0)
+    }
     pub fn players_points(&self) -> &HashMap<u32, u32> { &self.players_points }
     pub fn get_current_player(&self) -> u32 { self.current_player }
 
@@ -178,6 +197,10 @@ impl GameInfo {
 
     pub fn hit(&mut self, player_id: u32, deck: &mut Deck) -> bool {
         if self.phase != Phase::Playing || self.current_player != player_id {
+            return false;
+        }
+        // Cannot draw on 21 (natural blackjack or otherwise)
+        if self.players_points.get(&player_id).copied().unwrap_or(0) >= 21 {
             return false;
         }
         let new_card = deck.draw();

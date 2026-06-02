@@ -180,6 +180,7 @@ services:
       USER_SERVICE_URL:  https://oauth:8081
       STATS_SERVICE_URL: https://stats-service:8083
       INTERNAL_SECRET:   ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      MAX_TABLES:        ${MAX_TABLES:-3}
       TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
       TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
       RUST_LOG: info

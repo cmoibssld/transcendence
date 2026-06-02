@@ -1,4 +1,5 @@
 import { useNavigate, Link, NavLink } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import { logout as authLogout } from '../auth'
 import '../styles/Header.css'
 
@@ -36,8 +37,17 @@ function LogoutIcon() {
 export default function Header() {
   const navigate   = useNavigate()
   const isLoggedIn = !!localStorage.getItem('user_id')
-  const username   = localStorage.getItem('username') ?? 'Joueur'
-  const avatarUrl  = localStorage.getItem('avatar_url') || null
+  const [username,  setUsername]  = useState(localStorage.getItem('username') ?? 'Joueur')
+  const [avatarUrl, setAvatarUrl] = useState(localStorage.getItem('avatar_url') || null)
+
+  useEffect(() => {
+    const sync = () => {
+      setUsername(localStorage.getItem('username') ?? 'Joueur')
+      setAvatarUrl(localStorage.getItem('avatar_url') || null)
+    }
+    window.addEventListener('profile-updated', sync)
+    return () => window.removeEventListener('profile-updated', sync)
+  }, [])
 
   const navLinks = isLoggedIn ? NAV_AUTH : NAV_PUBLIC
 

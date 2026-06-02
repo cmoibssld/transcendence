@@ -316,7 +316,7 @@ async fn ws_message(
 
             // Send history to the joining user
             for msg in history {
-                dispatch(&http_client, &ws_url, vec![user_id], serde_json::to_value(&msg).unwrap_or_default()).await;
+                dispatch(&http_client, &ws_url, &secret.0,vec![user_id], serde_json::to_value(&msg).unwrap_or_default()).await;
             }
 
             // Announce to room
@@ -325,7 +325,7 @@ async fn ws_message(
                 format!("{} joined the chat", name),
             );
             let audience2 = hub.lock().unwrap().message_rest(&room_id, envelope.clone());
-            dispatch(&http_client, &ws_url, audience2, serde_json::to_value(&envelope).unwrap_or_default()).await;
+            dispatch(&http_client, &ws_url, &secret.0,audience2, serde_json::to_value(&envelope).unwrap_or_default()).await;
 
             let _ = audience; // already dispatched above
         }
@@ -337,7 +337,7 @@ async fn ws_message(
                     Uuid::new_v4(), room_id.clone(),
                     format!("{} left the chat", name),
                 );
-                dispatch(&http_client, &ws_url, audience, serde_json::to_value(&envelope).unwrap_or_default()).await;
+                dispatch(&http_client, &ws_url, &secret.0,audience, serde_json::to_value(&envelope).unwrap_or_default()).await;
             }
         }
         "chat.rename" => {
@@ -358,7 +358,7 @@ async fn ws_message(
                 format!("{} is now known as {}", old_name, new_name),
             );
             let audience = hub.lock().unwrap().message_rest(&room_id, envelope.clone());
-            dispatch(&http_client, &ws_url, audience, serde_json::to_value(&envelope).unwrap_or_default()).await;
+            dispatch(&http_client, &ws_url, &secret.0,audience, serde_json::to_value(&envelope).unwrap_or_default()).await;
         }
         "chat.message" => {
             let text = body.payload.get("message")
@@ -378,7 +378,7 @@ async fn ws_message(
                 Uuid::new_v4(), room_id.clone(), name, text,
             );
             let audience = hub.lock().unwrap().message_rest(&room_id, envelope.clone());
-            dispatch(&http_client, &ws_url, audience, serde_json::to_value(&envelope).unwrap_or_default()).await;
+            dispatch(&http_client, &ws_url, &secret.0,audience, serde_json::to_value(&envelope).unwrap_or_default()).await;
         }
         _ => {}
     }
@@ -386,11 +386,12 @@ async fn ws_message(
     HttpResponse::Accepted().finish()
 }
 
-async fn dispatch(client: &reqwest::Client, ws_url: &str, user_ids: Vec<u64>, envelope: serde_json::Value) {
+async fn dispatch(client: &reqwest::Client, ws_url: &str, secret: &str, user_ids: Vec<u64>, envelope: serde_json::Value) {
     if user_ids.is_empty() { return; }
     let kind = envelope.get("kind").and_then(|v| v.as_str()).unwrap_or("chat.message").to_string();
     let _ = client
         .post(format!("{}/dispatch", ws_url))
+        .header("X-Internal-Secret", secret)
         .json(&serde_json::json!({
             "user_ids": user_ids,
             "event": { "kind": kind, "payload": envelope }
@@ -508,8 +509,15 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         let cors = Cors::default()
             .allowed_origin_fn(|origin, _| {
-                let b = origin.as_bytes();
-                b.starts_with(b"https://localhost") || b.starts_with(b"http://localhost")
+                // Exact-match allowlist (a starts_with check would accept
+                // "http://localhost.attacker.com" with credentials).
+                matches!(
+                    origin.to_str(),
+                    Ok("https://localhost:8443")
+                        | Ok("http://localhost:8443")
+                        | Ok("https://localhost:3000")
+                        | Ok("http://localhost:3000")
+                )
             })
             .allowed_methods(vec!["GET", "POST", "OPTIONS"])
             .allowed_headers(vec![

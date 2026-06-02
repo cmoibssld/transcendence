@@ -17,5 +17,8 @@ RUN apt-get update \
 
 COPY --from=builder /usr/src/stats-service/target/release/stats-service /usr/local/bin/stats-service
 
+RUN useradd -m -u 1001 statsuser && chown statsuser:statsuser /usr/local/bin/stats-service
+USER statsuser
+
 EXPOSE 8083
 CMD ["stats-service"]
