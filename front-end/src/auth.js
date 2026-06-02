@@ -49,6 +49,7 @@ export async function refreshAccessToken() {
 }
 
 export function logout() {
+    sessionStorage.removeItem("auth_ok")
     fetch(`${AUTH_URL}/auth/logout`, {
         method: "POST",
         credentials: "include",

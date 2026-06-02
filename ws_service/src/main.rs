@@ -33,14 +33,15 @@ struct ForceDisconnect;
 
 struct WsSession {
     user_id:        u64,
+    username:       String,
     state:          AppState,
     kicked:         bool,
     last_heartbeat: Instant,
 }
 
 impl WsSession {
-    fn new(user_id: u64, state: AppState) -> Self {
-        Self { user_id, state, kicked: false, last_heartbeat: Instant::now() }
+    fn new(user_id: u64, username: String, state: AppState) -> Self {
+        Self { user_id, username, state, kicked: false, last_heartbeat: Instant::now() }
     }
 
     fn start_heartbeat(&self, ctx: &mut ws::WebsocketContext<Self>) {
@@ -182,8 +183,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                     }
                 };
 
-                let user_id = self.user_id;
-                let state   = self.state.clone();
+                let user_id  = self.user_id;
+                let username = self.username.clone();
+                let state    = self.state.clone();
 
                 actix_web::rt::spawn(async move {
                     let is_game = payload.kind.starts_with("game.");
@@ -195,13 +197,27 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                         return;
                     };
 
+                    // For chat events that carry a user-supplied name, enforce
+                    // the JWT-authenticated username to prevent impersonation.
+                    let forwarded_payload = if payload.kind.starts_with("chat.") {
+                        let mut p = payload.payload.clone();
+                        if let Some(obj) = p.as_object_mut() {
+                            if obj.contains_key("name") {
+                                obj.insert("name".to_string(), serde_json::Value::String(username));
+                            }
+                        }
+                        p
+                    } else {
+                        payload.payload
+                    };
+
                     let _ = state.http_client
                         .post(target_url)
                         .header("X-Internal-Secret", &state.internal_secret)
                         .json(&api::ForwardEvent {
                             user_id,
                             kind: payload.kind,
-                            payload: payload.payload,
+                            payload: forwarded_payload,
                         })
                         .send()
                         .await;
@@ -224,17 +240,9 @@ async fn health() -> impl Responder {
 }
 
 fn extract_ws_token(req: &HttpRequest) -> Option<String> {
-    // Token must come from the HttpOnly cookie only — never from URL params
-    // (URL params appear in server logs, browser history, and Referer headers)
-    req.headers()
-        .get("cookie")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|cookies| {
-            cookies.split(';')
-                .map(|s| s.trim())
-                .find(|s| s.starts_with("access_token="))
-                .map(|s| s["access_token=".len()..].to_string())
-        })
+    // Use actix-web's cookie parser (handles encoding, quoting) — same as oauth service
+    req.cookie("access_token")
+        .map(|c| c.value().to_string())
 }
 
 async fn ws_index(
@@ -242,8 +250,13 @@ async fn ws_index(
     stream: web::Payload,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, Error> {
-    let token = extract_ws_token(&req)
-        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Missing token"))?;
+    let token = match extract_ws_token(&req) {
+        Some(t) => t,
+        None => {
+            log::warn!("WS: no access_token cookie in request");
+            return Err(actix_web::error::ErrorUnauthorized("Missing token"));
+        }
+    };
 
     let url = format!("{}/auth/introspect", state.user_service_url);
     let response = state
@@ -257,6 +270,9 @@ async fn ws_index(
         .map_err(|_| actix_web::error::ErrorUnauthorized("Auth failed"))?;
 
     if !response.status().is_success() {
+        let status = response.status();
+        let body   = response.text().await.unwrap_or_default();
+        log::warn!("Introspect rejected ({}): {}", status, body);
         return Err(actix_web::error::ErrorUnauthorized("Auth failed"));
     }
 
@@ -265,7 +281,7 @@ async fn ws_index(
         .await
         .map_err(|_| actix_web::error::ErrorUnauthorized("Auth failed"))?;
 
-    let session = WsSession::new(auth.user_id, state.get_ref().clone());
+    let session = WsSession::new(auth.user_id, auth.username, state.get_ref().clone());
     ws::start(session, &req, stream)
 }
 

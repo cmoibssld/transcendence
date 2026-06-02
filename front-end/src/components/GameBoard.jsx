@@ -340,9 +340,16 @@ export default function GameBoard() {
   // Reveal state: null = idle, { cards, flipping } = animating
   const [revealSeq, setRevealSeq] = useState(null)
 
-  const wsRef         = useRef(null)
-  const selfIdRef     = useRef(null)
-  const revealTimers  = useRef([])
+  // reconnectKey increments to trigger a new connection attempt (never resets to avoid loops)
+  // reconnectAttempts is a ref so resetting it on success never causes a re-render
+  const [reconnectKey, setReconnectKey]       = useState(0)
+  const reconnectAttempts                      = useRef(0)
+
+  const wsRef              = useRef(null)
+  const selfIdRef          = useRef(null)
+  const revealTimers       = useRef([])
+  const intentionalClose   = useRef(false)
+  const reconnectTimerRef  = useRef(null)
 
   const clearRevealTimers = useCallback(() => {
     revealTimers.current.forEach(clearTimeout)
@@ -372,8 +379,10 @@ export default function GameBoard() {
     let cancelled = false
     let socket = null
 
+    intentionalClose.current = false
+    clearTimeout(reconnectTimerRef.current)
+
     ;(async () => {
-      // Verify user is logged in via localStorage (tokens are in HttpOnly cookies)
       if (!localStorage.getItem("user_id")) {
         setStatus("Non authentifié — connectez-vous d'abord.")
         return
@@ -399,6 +408,7 @@ export default function GameBoard() {
     setStatus(`Connexion à la table ${tableId}…`)
 
     socket.onopen = () => {
+      reconnectAttempts.current = 0
       if (freshCoins <= 0) {
         setStatus("Vous n'avez pas de coins. Impossible de rejoindre la table.")
         return
@@ -420,6 +430,7 @@ export default function GameBoard() {
 
       // ── kicked (same account opened elsewhere) ───────────────────────────
       if (kind === "system.kick") {
+        intentionalClose.current = true
         setStatus("⚠️ Compte connecté depuis une autre fenêtre — déconnecté.")
         setJoined(false)
         if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
@@ -586,12 +597,31 @@ export default function GameBoard() {
       }
     }
 
-      socket.onclose = () => { setJoined(false); setStatus("Connexion fermée.") }
-      socket.onerror = () => setStatus("Erreur WebSocket.")
+      socket.onclose = () => {
+        setJoined(false)
+        if (cancelled || intentionalClose.current) {
+          setStatus("Connexion fermée.")
+          return
+        }
+        // Unexpected disconnect — reconnect with exponential backoff (1s, 2s, 4s… max 15s)
+        const attempt = reconnectAttempts.current
+        reconnectAttempts.current = attempt + 1
+        const delay = Math.min(1000 * Math.pow(2, attempt), 15000)
+        const secs  = Math.round(delay / 1000)
+        setStatus(`Connexion perdue. Reconnexion dans ${secs}s…`)
+        reconnectTimerRef.current = setTimeout(() => {
+          if (!cancelled) setReconnectKey(k => k + 1)
+        }, delay)
+      }
+      socket.onerror = () => {
+        if (!intentionalClose.current) setStatus("Erreur WebSocket — reconnexion en cours…")
+      }
     })()
 
     return () => {
       cancelled = true
+      intentionalClose.current = true
+      clearTimeout(reconnectTimerRef.current)
       if (socket) {
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({
@@ -604,7 +634,7 @@ export default function GameBoard() {
       }
       clearRevealTimers()
     }
-  }, [tableId, fetchCoins, clearRevealTimers])
+  }, [tableId, fetchCoins, clearRevealTimers, reconnectKey])
 
   // ── derived state ───────────────────────────────────────────────────────────
   const isRevealing   = revealSeq !== null
@@ -642,6 +672,7 @@ export default function GameBoard() {
 
   const send = (kind, payload = {}) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (kind === "game.leave") intentionalClose.current = true
       wsRef.current.send(JSON.stringify({ kind, payload }))
     }
   }

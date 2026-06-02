@@ -34,8 +34,34 @@ const Register = () => {
             return
         }
 
+        if (form.username.trim().length < 2 || form.username.length > 32) {
+            setError("Le nom d'utilisateur doit contenir entre 2 et 32 caractères")
+            return
+        }
+
+        if (!/^[a-zA-Z0-9_-]+$/.test(form.username)) {
+            setError("Le nom d'utilisateur ne peut contenir que des lettres, chiffres, _ et -")
+            return
+        }
+
+        if (form.password.length < 8) {
+            setError("Le mot de passe doit contenir au moins 8 caractères")
+            return
+        }
+
+        if (form.password.length > 128) {
+            setError("Le mot de passe est trop long (128 caractères max)")
+            return
+        }
+
         if (form.password !== form.confirmPassword) {
             setError("Les mots de passe ne correspondent pas")
+            return
+        }
+
+        const emailTrimmed = form.email.trim()
+        if (!emailTrimmed.includes("@") || emailTrimmed.startsWith("@") || emailTrimmed.endsWith("@")) {
+            setError("Adresse e-mail invalide")
             return
         }
 

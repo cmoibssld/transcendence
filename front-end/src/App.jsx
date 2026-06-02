@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom"
+import { apiFetch } from "./auth"
 import Header from "./components/Header"
 import Footer from "./components/Footer"
 import Home from "./pages/Home"
@@ -100,7 +101,36 @@ function useGlobalPresence() {
 
 function ProtectedRoute({ children }) {
   const userId = localStorage.getItem("user_id")
+  const navigate = useNavigate()
+  // sessionStorage flag avoids a round-trip on every route change within the same tab.
+  // It resets automatically when the tab/window is closed.
+  const [verified, setVerified] = useState(
+    userId !== null && sessionStorage.getItem("auth_ok") === "1"
+  )
+
+  useEffect(() => {
+    if (!userId) return
+    if (sessionStorage.getItem("auth_ok") === "1") return
+    apiFetch(`${AUTH_URL}/auth/profile`)
+      .then(r => {
+        if (r.ok) {
+          sessionStorage.setItem("auth_ok", "1")
+          setVerified(true)
+        } else {
+          sessionStorage.removeItem("auth_ok")
+          localStorage.removeItem("user_id")
+          localStorage.removeItem("username")
+          localStorage.removeItem("avatar_url")
+          navigate("/login", { replace: true })
+        }
+      })
+      .catch(() => {
+        navigate("/login", { replace: true })
+      })
+  }, [userId, navigate])
+
   if (!userId) return <Navigate to="/login" replace />
+  if (!verified) return null
   return children
 }
 
