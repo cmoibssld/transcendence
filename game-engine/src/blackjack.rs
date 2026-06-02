@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use rand::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Ord, Eq, PartialOrd, Clone)]
@@ -24,8 +25,10 @@ pub struct GameInfo {
     players_in_game: Vec<u32>,
     players_cards: HashMap<u32, Vec<Card>>,
     players_points: HashMap<u32, u32>,
-    pub bets: HashMap<u32, u64>,     // player_id → bet (coins)
-    pub pending_bets: Vec<u32>,      // players who haven't placed a bet yet
+    pub bets: HashMap<u32, u64>,
+    pub pending_bets: Vec<u32>,
+    // Unix timestamp (seconds) when the current betting phase started — lets all clients share the same countdown
+    pub bet_phase_started_at: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -73,16 +76,17 @@ impl Deck {
 impl Clone for GameInfo {
     fn clone(&self) -> Self {
         GameInfo {
-            table_id:        self.table_id,
-            phase:           self.phase.clone(),
-            current_player:  self.current_player,
-            dealer_cards:    self.dealer_cards.clone(),
-            dealer_points:   self.dealer_points,
-            players_in_game: self.players_in_game.clone(),
-            players_cards:   self.players_cards.clone(),
-            players_points:  self.players_points.clone(),
-            bets:            self.bets.clone(),
-            pending_bets:    self.pending_bets.clone(),
+            table_id:             self.table_id,
+            phase:                self.phase.clone(),
+            current_player:       self.current_player,
+            dealer_cards:         self.dealer_cards.clone(),
+            dealer_points:        self.dealer_points,
+            players_in_game:      self.players_in_game.clone(),
+            players_cards:        self.players_cards.clone(),
+            players_points:       self.players_points.clone(),
+            bets:                 self.bets.clone(),
+            pending_bets:         self.pending_bets.clone(),
+            bet_phase_started_at: self.bet_phase_started_at,
         }
     }
 }
@@ -91,15 +95,16 @@ impl GameInfo {
     pub fn new(table_id: u32) -> GameInfo {
         GameInfo {
             table_id,
-            phase:           Phase::Betting,
-            current_player:  0,
-            dealer_cards:    Vec::with_capacity(5),
-            dealer_points:   0,
-            players_in_game: Vec::with_capacity(3),
-            players_cards:   HashMap::new(),
-            players_points:  HashMap::with_capacity(3),
-            bets:            HashMap::with_capacity(3),
-            pending_bets:    Vec::with_capacity(3),
+            phase:                Phase::Betting,
+            current_player:       0,
+            dealer_cards:         Vec::with_capacity(5),
+            dealer_points:        0,
+            players_in_game:      Vec::with_capacity(3),
+            players_cards:        HashMap::new(),
+            players_points:       HashMap::with_capacity(3),
+            bets:                 HashMap::with_capacity(3),
+            pending_bets:         Vec::with_capacity(3),
+            bet_phase_started_at: now_secs(),
         }
     }
 
@@ -307,14 +312,18 @@ impl GameInfo {
         self.pending_bets.clear();
         self.current_player = 0;
         self.phase = Phase::Betting;
+        self.bet_phase_started_at = now_secs();
         if deck.half_draw() {
             deck.another_shuffle();
         }
-        // Dealer cards are dealt in start_playing(), not during Betting phase
     }
 }
 
-pub fn points_sum(src: &Vec<Card>) -> u32 {
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
+pub fn points_sum(src: &[Card]) -> u32 {
     let mut total: u32 = 0;
     let mut aces: u32 = 0;
     for card in src.iter() {

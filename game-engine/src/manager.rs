@@ -179,13 +179,13 @@ impl GameManager {
                 };
 
                 self.restart();
-                let new_state = serde_json::to_value(&self.info).unwrap_or_default();
+                let new_state = self.state_with_users();
                 let post = serde_json::json!({ "kind": "game.state", "payload": new_state });
 
                 (round_end, Some(post), Some(history), coin_deltas)
             }
             Some(_) => {
-                let state = serde_json::to_value(&self.info).unwrap_or_default();
+                let state = self.state_with_users();
                 (serde_json::json!({ "kind": "game.state", "payload": state }), None, None, vec![])
             }
             None => (
@@ -199,11 +199,24 @@ impl GameManager {
         self.info.restart(&mut self.deck);
         let ids: Vec<u32> = self.players.keys().cloned().collect();
         for id in ids {
-            self.info.add_player(id); // back to pending_bets, no cards
+            self.info.add_player(id);
         }
         self.round_nb += 1;
         self.open = true;
         log::info!("Table {} restarted, round {}", self.info.table_id(), self.round_nb);
+    }
+
+    // Serialize game state and inject the player_id → user_id map so the frontend
+    // can resolve usernames without knowing the internal player_id ↔ user_id mapping.
+    fn state_with_users(&self) -> serde_json::Value {
+        let mut v = serde_json::to_value(&self.info).unwrap_or_default();
+        if let Some(obj) = v.as_object_mut() {
+            let map: serde_json::Map<String, serde_json::Value> = self.players.iter()
+                .map(|(pid, uid)| (pid.to_string(), serde_json::json!(uid)))
+                .collect();
+            obj.insert("player_user_ids".to_string(), serde_json::Value::Object(map));
+        }
+        v
     }
 }
 
@@ -269,7 +282,7 @@ impl GameData {
         // Already in a game → return current state
         if let Some(&(tid, pid)) = self.user_sessions.get(&user_id) {
             if self.tables.contains_key(&tid) {
-                let state    = serde_json::to_value(&self.tables[&tid].info).unwrap_or_default();
+                let state    = self.tables[&tid].state_with_users();
                 let audience = self.tables[&tid].audience();
                 return IngestResult {
                     personal: Some(serde_json::json!({
@@ -306,7 +319,7 @@ impl GameData {
         if table_full { let _ = self.add_table(); }
 
         let audience  = self.tables[&table_id].audience();
-        let state_val = serde_json::to_value(&self.tables[&table_id].info).unwrap_or_default();
+        let state_val = self.tables[&table_id].state_with_users();
 
         IngestResult {
             personal: Some(serde_json::json!({
@@ -353,7 +366,7 @@ impl GameData {
                     table.info.deal_to_player(pid, &mut table.deck, 2);
                 }
             }
-            (table.audience(), serde_json::to_value(&table.info).unwrap_or_default())
+            (table.audience(), table.state_with_users())
         };
 
         IngestResult {
@@ -392,7 +405,7 @@ impl GameData {
             Some(0) => {
                 // Still waiting for other players
                 let audience  = table.audience();
-                let state_val = serde_json::to_value(&table.info).unwrap_or_default();
+                let state_val = table.state_with_users();
                 IngestResult {
                     personal: None,
                     broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
@@ -408,7 +421,7 @@ impl GameData {
                     table.info.deal_to_player(pid, &mut table.deck, 2);
                 }
                 let audience  = table.audience();
-                let state_val = serde_json::to_value(&table.info).unwrap_or_default();
+                let state_val = table.state_with_users();
                 IngestResult {
                     personal: None,
                     broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
@@ -419,7 +432,7 @@ impl GameData {
                 // Some(2): everyone skipped — restart the round immediately
                 table.restart();
                 let audience  = table.audience();
-                let state_val = serde_json::to_value(&table.info).unwrap_or_default();
+                let state_val = table.state_with_users();
                 IngestResult {
                     personal: None,
                     broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),
@@ -453,7 +466,7 @@ impl GameData {
             let hit_ok = table.info.hit(player_id, &mut table.deck);
             let pts    = if hit_ok { table.info.player_check(&player_id).unwrap_or(0) } else { 0 };
             let aud    = table.audience();
-            let sv     = serde_json::to_value(&table.info).unwrap_or_default();
+            let sv     = table.state_with_users();
             (hit_ok, pts, aud, sv)
         };
 
@@ -498,15 +511,10 @@ impl GameData {
             (aud, ev, post, hist, deltas)
         };
 
-        // Convert (player_id, encoded_delta) → (user_id, i64)
-        let coin_updates: Vec<(u64, i64)> = raw_deltas.into_iter().filter_map(|(pid, encoded)| {
+        // All payouts from stand() are positive — direct cast, same as do_double
+        let coin_updates: Vec<(u64, i64)> = raw_deltas.into_iter().filter_map(|(pid, payout)| {
             let user_id = self.tables[&table_id].players.get(&pid).copied()?;
-            let delta: i64 = if encoded & (1u64 << 63) != 0 {
-                -((encoded & !(1u64 << 63)) as i64) // negative
-            } else {
-                encoded as i64 // positive
-            };
-            Some((user_id, delta))
+            Some((user_id, payout as i64))
         }).collect();
 
         IngestResult { personal: None, broadcast: Some(broadcast), post_broadcast, audience, history, coin_updates }
@@ -616,7 +624,7 @@ impl GameData {
                     }
                 }
                 let audience = table.audience();
-                let sv = serde_json::to_value(&table.info).unwrap_or_default();
+                let sv = table.state_with_users();
                 IngestResult {
                     personal: None,
                     broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": sv })),
@@ -653,7 +661,7 @@ impl GameData {
                     // Player had already stood — clean up silently
                     table.info.remove_player(player_id);
                     let audience = table.audience();
-                    let sv = serde_json::to_value(&table.info).unwrap_or_default();
+                    let sv = table.state_with_users();
                     IngestResult {
                         personal: None,
                         broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": sv })),
@@ -673,7 +681,7 @@ impl GameData {
         if let Some(table) = self.tables.get_mut(&table_id) {
             table.remove_player(player_id);
             let audience  = table.audience();
-            let state_val = serde_json::to_value(&table.info).unwrap_or_default();
+            let state_val = table.state_with_users();
             return IngestResult {
                 personal: Some(serde_json::json!({ "kind": "game.left", "payload": {} })),
                 broadcast: Some(serde_json::json!({ "kind": "game.state", "payload": state_val })),

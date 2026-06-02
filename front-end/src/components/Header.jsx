@@ -1,4 +1,5 @@
 import { useNavigate, Link, NavLink } from 'react-router-dom'
+import { logout as authLogout } from '../auth'
 import '../styles/Header.css'
 
 const NAV_PUBLIC  = [
@@ -34,16 +35,14 @@ function LogoutIcon() {
 
 export default function Header() {
   const navigate   = useNavigate()
-  const token      = localStorage.getItem('access_token')
-  const isLoggedIn = !!token
+  const isLoggedIn = !!localStorage.getItem('user_id')
   const username   = localStorage.getItem('username') ?? 'Joueur'
   const avatarUrl  = localStorage.getItem('avatar_url') || null
 
   const navLinks = isLoggedIn ? NAV_AUTH : NAV_PUBLIC
 
   function handleLogout() {
-    localStorage.clear()
-    navigate('/login')
+    authLogout()  // clears cookies server-side then clears localStorage and redirects
   }
 
   return (

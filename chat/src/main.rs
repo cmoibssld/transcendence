@@ -225,6 +225,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatSession {
                         Some("leave") => { ctx.close(None); ctx.stop(); }
                         _ => {
                             if let Some(msg) = payload.message.filter(|m| !m.trim().is_empty()) {
+                                if msg.len() > 500 {
+                                    // Silently ignore oversized messages
+                                    return;
+                                }
                                 if let Some(cid) = payload.client_id { self.client_id = cid; }
                                 self.hub.lock().unwrap().broadcast_ws(ChatEnvelope::message(
                                     self.client_id, self.room_id.clone(), self.name.clone(), msg,
@@ -240,6 +244,34 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatSession {
     }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn validate_room_id(room_id: &str) -> bool {
+    !room_id.is_empty()
+        && room_id.len() <= 64
+        && room_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+}
+
+fn check_internal_secret(req: &HttpRequest) -> Result<(), HttpResponse> {
+    let expected = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+    if expected.is_empty() {
+        return Err(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": "server misconfigured"})));
+    }
+    let provided = req.headers()
+        .get("X-Internal-Secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    // Constant-time comparison
+    let secret_ok = expected.len() == provided.len()
+        && expected.bytes().zip(provided.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+    if !secret_ok {
+        return Err(HttpResponse::Unauthorized()
+            .json(serde_json::json!({"error": "unauthorized"})));
+    }
+    Ok(())
+}
+
 // ── REST: ingest from ws-service ──────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -251,16 +283,27 @@ struct ForwardEvent {
 
 #[post("/ws/message")]
 async fn ws_message(
+    req: HttpRequest,
     body: web::Json<ForwardEvent>,
     hub: web::Data<Mutex<ChatHub>>,
     http_client: web::Data<reqwest::Client>,
     ws_url: web::Data<String>,
 ) -> HttpResponse {
+    // Vérifier que l'appel vient d'un service interne autorisé
+    if let Err(resp) = check_internal_secret(&req) {
+        return resp;
+    }
+
     let user_id = body.user_id;
     let room_id = body.payload.get("room_id")
         .and_then(|v| v.as_str())
         .unwrap_or("general")
         .to_string();
+
+    if !validate_room_id(&room_id) {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Invalid room_id"}));
+    }
 
     match body.kind.as_str() {
         "chat.join" => {
@@ -326,6 +369,10 @@ async fn ws_message(
             if text.is_empty() {
                 return HttpResponse::BadRequest().json(serde_json::json!({"error": "empty message"}));
             }
+            if text.len() > 500 {
+                return HttpResponse::BadRequest()
+                    .json(serde_json::json!({"error": "Message too long"}));
+            }
             let name = hub.lock().unwrap().user_name(&room_id, user_id);
             let envelope = ChatEnvelope::message(
                 Uuid::new_v4(), room_id.clone(), name, text,
@@ -388,11 +435,27 @@ async fn post_message(
     body: web::Json<PostMessageBody>,
     hub: web::Data<Mutex<ChatHub>>,
 ) -> HttpResponse {
+    // Vérifier que l'appel vient d'un service interne autorisé
+    if let Err(resp) = check_internal_secret(&req) {
+        return resp;
+    }
+
     let room_id = path.into_inner();
+
+    if !validate_room_id(&room_id) {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Invalid room_id"}));
+    }
+
     let message = body.message.trim();
 
     if message.is_empty() {
         return HttpResponse::BadRequest().json(serde_json::json!({"error": "message cannot be empty"}));
+    }
+
+    if message.len() > 500 {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Message too long"}));
     }
 
     let sender = read_chat_name(&req);
@@ -410,6 +473,10 @@ async fn ws_room(
     hub: web::Data<Mutex<ChatHub>>,
 ) -> Result<HttpResponse, Error> {
     let room_id = path.into_inner();
+    if !validate_room_id(&room_id) {
+        return Ok(HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Invalid room_id"})));
+    }
     let name = read_chat_name(&req);
     let session = ChatSession::new(room_id, name, hub);
     ws::start(session, &req, stream)
@@ -433,13 +500,7 @@ async fn main() -> std::io::Result<()> {
     let ws_service_url = std::env::var("WS_SERVICE_URL")
         .unwrap_or_else(|_| "https://ws-service:8082".to_string());
 
-    let http_client = web::Data::new(
-        reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .timeout(Duration::from_secs(5))
-            .build()
-            .expect("Failed to build HTTP client"),
-    );
+    let http_client = web::Data::new(internal_http_client());
     let ws_url = web::Data::new(ws_service_url);
 
     HttpServer::new(move || {
@@ -470,6 +531,20 @@ async fn main() -> std::io::Result<()> {
     .bind_openssl((host.as_str(), port), build_tls())?
     .run()
     .await
+}
+
+fn internal_http_client() -> reqwest::Client {
+    let path = std::env::var("TLS_CERT_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
+    let pem = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("Cannot read internal CA cert {path}: {e}"));
+    let cert = reqwest::Certificate::from_pem(&pem)
+        .expect("Invalid internal CA certificate PEM");
+    reqwest::Client::builder()
+        .add_root_certificate(cert)
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("Failed to build HTTP client")
 }
 
 fn build_tls() -> openssl::ssl::SslAcceptorBuilder {

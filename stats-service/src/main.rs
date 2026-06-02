@@ -470,10 +470,23 @@ async fn leaderboard_response(
 }
 
 fn extract_bearer(req: &HttpRequest) -> Option<String> {
+    // Try Authorization: Bearer header first
     req.headers()
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer ").map(str::to_owned))
+        // Fall back to access_token HttpOnly cookie
+        .or_else(|| {
+            req.headers()
+                .get("cookie")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|cookies| {
+                    cookies.split(';')
+                        .map(|s| s.trim())
+                        .find(|s| s.starts_with("access_token="))
+                        .map(|s| s["access_token=".len()..].to_string())
+                })
+        })
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -507,11 +520,7 @@ async fn main() -> std::io::Result<()> {
             }),
     });
 
-    let http_client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(Duration::from_secs(5))
-        .build()
-        .expect("Failed to build HTTP client");
+    let http_client = internal_http_client();
 
     let db_pool = web::Data::new(pool);
     let client  = web::Data::new(http_client);
@@ -535,6 +544,20 @@ async fn main() -> std::io::Result<()> {
     .bind_openssl(("0.0.0.0", 8083), build_tls())?
     .run()
     .await
+}
+
+fn internal_http_client() -> reqwest::Client {
+    let path = std::env::var("TLS_CERT_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
+    let pem = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("Cannot read internal CA cert {path}: {e}"));
+    let cert = reqwest::Certificate::from_pem(&pem)
+        .expect("Invalid internal CA certificate PEM");
+    reqwest::Client::builder()
+        .add_root_certificate(cert)
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("Failed to build HTTP client")
 }
 
 fn build_tls() -> openssl::ssl::SslAcceptorBuilder {

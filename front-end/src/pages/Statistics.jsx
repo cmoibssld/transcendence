@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiFetch, getAccessToken } from "../auth";
+import { apiFetch } from "../auth";
 import "../styles/Statistics.css";
 
 const GAME_URL = import.meta.env.VITE_GAME_URL ?? "https://localhost:8443/api/game";
@@ -64,13 +64,13 @@ export default function Statistics() {
   const [loading,   setLoading]   = useState(true);
 
   useEffect(() => {
-    const token = getAccessToken();
+    const isLoggedIn = !!localStorage.getItem('user_id');
     const safe = (p) => p.catch(() => null);
     Promise.all([
       safe(fetch(`${GAME_URL}/leaderboard/wins?limit=10`).then(r => r.ok ? r.json() : [])),
       safe(fetch(`${GAME_URL}/leaderboard/wagered?limit=10`).then(r => r.ok ? r.json() : [])),
       safe(fetch(`${GAME_URL}/leaderboard/gains?limit=10`).then(r => r.ok ? r.json() : [])),
-      token
+      isLoggedIn
         ? safe(apiFetch(`${GAME_URL}/stats/me`).then(r => r.ok ? r.json() : null))
         : Promise.resolve(null),
     ]).then(([wins, wagered, gains, me]) => {

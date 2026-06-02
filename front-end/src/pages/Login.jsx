@@ -6,7 +6,7 @@ const Login = () => {
     const location = useLocation()
     const params = new URLSearchParams(location.search)
     const oauthError = params.get("error") === "oauth_failed"
-    const oauthReason = params.get("reason") ?? ""
+    const oauthReason = (params.get("reason") ?? "").slice(0, 100).replace(/[<>"']/g, "")
 
     const [form, setForm] = useState({ username: "", password: "" })
     const [error, setError] = useState("")
@@ -31,10 +31,10 @@ const Login = () => {
             })
             const data = await res.json()
             if (!res.ok) throw new Error(data?.error ?? "Connexion refusée")
-            localStorage.setItem("access_token",  data.access_token)
-            localStorage.setItem("refresh_token", data.refresh_token)
-            localStorage.setItem("username",      data.username)
-            localStorage.setItem("avatar_url",    data.avatar_url ?? "")
+            // Tokens are now in HttpOnly cookies set by the server — store only display info
+            if (data.username)  localStorage.setItem("username",  data.username)
+            if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url ?? "")
+            if (data.user_id)   localStorage.setItem("user_id",   String(data.user_id))
             window.location.href = "/"
         } catch (err) {
             setError(err.message)

@@ -1,90 +1,61 @@
 const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
 
-let refreshing = null  // singleton promise to avoid parallel refresh calls
-
-export function getAccessToken() {
-    return localStorage.getItem("access_token")
-}
-
-export async function refreshAccessToken() {
-    if (refreshing) return refreshing
-
-    refreshing = (async () => {
-        const refreshToken = localStorage.getItem("refresh_token")
-        if (!refreshToken) {
-            logout()
-            return null
-        }
-
-        try {
-            const resp = await fetch(`${AUTH_URL}/auth/refresh`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ refresh_token: refreshToken }),
-            })
-
-            if (!resp.ok) {
-                logout()
-                return null
-            }
-
-            const data = await resp.json()
-            localStorage.setItem("access_token", data.access_token)
-            localStorage.setItem("refresh_token", data.refresh_token)
-            if (data.username) localStorage.setItem("username", data.username)
-            if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url ?? "")
-            return data.access_token
-        } catch {
-            logout()
-            return null
-        } finally {
-            refreshing = null
-        }
-    })()
-
-    return refreshing
-}
-
-// fetch wrapper: retries once after refreshing on 401
+// All requests use credentials: "include" so the browser sends the HttpOnly
+// access_token cookie automatically. No manual token management needed.
 export async function apiFetch(url, options = {}) {
-    const token = getAccessToken()
-    const withAuth = (t) => ({
-        ...options,
-        headers: {
-            ...(options.headers ?? {}),
-            ...(t ? { Authorization: `Bearer ${t}` } : {}),
-        },
-    })
-
-    let resp = await fetch(url, withAuth(token))
+    const resp = await fetch(url, { ...options, credentials: "include" })
 
     if (resp.status === 401) {
-        const newToken = await refreshAccessToken()
-        if (!newToken) return resp  // refresh failed, caller sees 401
-        resp = await fetch(url, withAuth(newToken))
+        // Try to silently refresh via the refresh_token cookie
+        const refreshed = await fetch(`${AUTH_URL}/auth/refresh`, {
+            method: "POST",
+            credentials: "include",
+        })
+        if (!refreshed.ok) {
+            logout()
+            return resp
+        }
+        // Retry original request with the new access_token cookie
+        return fetch(url, { ...options, credentials: "include" })
     }
 
     return resp
 }
 
-// Returns a fresh access token, refreshing silently if it expires within 60 s
+// No longer needed — cookies are sent automatically by the browser.
+// Kept as a no-op so callers don't break during the transition.
 export async function getFreshToken() {
-    const token = getAccessToken()
-    if (!token) return null
-    try {
-        const payload = JSON.parse(atob(token.split(".")[1]))
-        if ((payload.exp * 1000) - Date.now() < 60_000) {
-            return await refreshAccessToken()
-        }
-    } catch { /* fall through */ }
-    return token
+    return null
 }
 
-// Clears all session data and redirects to /login
+// No longer readable — token is in an HttpOnly cookie.
+export function getAccessToken() {
+    return null
+}
+
+export async function refreshAccessToken() {
+    const resp = await fetch(`${AUTH_URL}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+    })
+    if (!resp.ok) {
+        logout()
+        return null
+    }
+    const data = await resp.json()
+    if (data.username) localStorage.setItem("username", data.username)
+    if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url ?? "")
+    return "cookie" // signals success without exposing the token
+}
+
 export function logout() {
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("refresh_token")
-    localStorage.removeItem("username")
-    localStorage.removeItem("avatar_url")
-    window.location.href = "/login"
+    fetch(`${AUTH_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+    }).finally(() => {
+        localStorage.removeItem("username")
+        localStorage.removeItem("avatar_url")
+        localStorage.removeItem("user_id")
+        window.location.href = "/login"
+    })
 }

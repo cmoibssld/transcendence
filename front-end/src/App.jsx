@@ -26,17 +26,19 @@ function OAuthCallback() {
     if (!code) return
 
     const authUrl = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
-    fetch(`${authUrl}/auth/exchange?code=${encodeURIComponent(code)}`)
+    fetch(`${authUrl}/auth/exchange?code=${encodeURIComponent(code)}`, {
+      credentials: "include"
+    })
       .then(r => {
         if (!r.ok) throw new Error(`exchange_http_${r.status}`)
         return r.json()
       })
       .then(data => {
-        if (data.access_token && data.refresh_token) {
-          localStorage.setItem("access_token", data.access_token)
-          localStorage.setItem("refresh_token", data.refresh_token)
-          if (data.username) localStorage.setItem("username", data.username)
-          if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url)
+        // Tokens are now in HttpOnly cookies — store only display info
+        if (data.username || data.user_id) {
+          if (data.username)   localStorage.setItem("username",   data.username)
+          if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url ?? "")
+          if (data.user_id)    localStorage.setItem("user_id",    String(data.user_id))
           navigate("/", { replace: true })
         } else {
           navigate(`/login?error=oauth_failed&reason=no_tokens`, { replace: true })
@@ -57,36 +59,29 @@ function useGlobalPresence() {
   const pingRef = useRef(null)
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    if (!token) return
-
-    // Decode JWT to get user_id (sub field)
-    let userId = 0
-    try {
-      const payload = JSON.parse(atob(token.split(".")[1]))
-      userId = payload.sub ?? 0
-    } catch { return }
+    // user_id is stored in localStorage on login (not sensitive — just an integer ID)
+    const userId = Number(localStorage.getItem("user_id"))
     if (!userId) return
 
     const ping = () =>
       fetch(`${AUTH_URL}/auth/presence/online`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",  // sends access_token HttpOnly cookie
         body: JSON.stringify({ user_id: userId }),
       }).catch(() => {})
 
     ping()
-    // Refresh every 4 minutes so the in-memory store survives restarts
     pingRef.current = setInterval(ping, 4 * 60 * 1000)
 
     const goOffline = () =>
-      navigator.sendBeacon(
-        `${AUTH_URL}/auth/presence/offline`,
-        JSON.stringify({ user_id: userId })
-      )
+      fetch(`${AUTH_URL}/auth/presence/offline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ user_id: userId }),
+        keepalive: true,
+      }).catch(() => {})
     window.addEventListener("beforeunload", goOffline)
 
     return () => {

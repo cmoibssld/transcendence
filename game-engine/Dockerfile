@@ -16,5 +16,8 @@ RUN apt-get update \
 
 COPY --from=builder /usr/src/game-engine/target/release/game-engine /usr/local/bin/game-engine
 
+RUN useradd -m -u 1001 appuser && chown -R appuser:appuser /usr/local/bin/game-engine
+USER appuser
+
 EXPOSE 8080
 CMD ["game-engine"]

@@ -1,3 +1,5 @@
+*This project has been created as part of the 42 curriculum by aloun (aloun.colonne@gmail.com).*
+
 # Luigi Jack — Multiplayer Blackjack Platform
 
 > A 42 school project (ft_transcendence) — a fully containerised, microservices-based Blackjack platform with real-time multiplayer, live chat, OAuth 2.0, and a statistics engine.
@@ -272,21 +274,29 @@ Constraints: `no_self_friend` (requester ≠ addressee), `unique_pair`.
 
 ## Modules & Points
 
-Each **major module** = 1 point, each **minor module** = 0.5 point. A minimum of 7 major modules (or equivalent) is required.
+Each **major module** = 2 points, each **minor module** = 1 point. A minimum of **14 points** is required.
 
 | # | Module | Type | Points | Owner(s) |
 |---|---|---|---|---|
-| 1 | **Backend Framework** — all services built in Rust/actix-web | Major | 1.0 | aguilleu / awarlamo |
-| 2 | **Standard User Management** — registration, login, profile, avatar, friends | Major | 1.0 | acolonne / cabarrou |
-| 3 | **OAuth 2.0 Authentication** — GitHub OAuth with CSRF protection and secure code exchange | Major | 1.0 | acolonne |
-| 4 | **Remote Players** — real-time multiplayer Blackjack via WebSocket | Major | 1.0 | awarlamo |
-| 5 | **Live Chat** — rooms, 50-message history, embedded in-game panel | Major | 1.0 | awarlamo / jlepany |
-| 6 | **Microservices Architecture** — 5 independent backend services, internal HTTPS | Major | 1.0 | all |
-| 7 | **Server-Side Game Logic** — Blackjack engine fully server-side with validated outcomes | Major | 1.0 | awarlamo / acolonne |
-| 8 | **User and Game Stats Dashboards** — stats, leaderboards, match history | Minor | 0.5 | acolonne |
-| 9 | **Expanding Browser Compatibility** — responsive layout, progressive enhancement | Minor | 0.5 | acolonne |
+| 1 | **Backend Framework** — all services built in Rust/actix-web | Major | 2 | aguilleu / awarlamo |
+| 2 | **Standard User Management** — registration, login, profile, avatar, friends | Major | 2 | acolonne / cabarrou |
+| 3 | **OAuth 2.0 Authentication** — GitHub OAuth with CSRF protection and secure code exchange | Minor | 1 | acolonne |
+| 4 | **Remote Players** — real-time multiplayer Blackjack via WebSocket | Major | 2 | awarlamo |
+| 5 | **Live Chat** — rooms, 50-message history, embedded in-game panel | Major | 2 | awarlamo / jlepany |
+| 6 | **Microservices Architecture** — 5 independent backend services, internal HTTPS | Major | 2 | all |
+| 7 | **Server-Side Game Logic** — Blackjack engine fully server-side with validated outcomes *(Module of choice — see justification below)* | Major | 2 | awarlamo / acolonne |
+| 8 | **User and Game Stats Dashboards** — stats, leaderboards, match history | Minor | 1 | acolonne |
 
-**Total: 7 major + 2 minor = 8 points**
+**Total: 6 major × 2 + 1 minor × 1 + 1 module of choice × 2 = 15 points**
+
+### Module of choice — justification: Server-Side Game Logic (Major)
+
+This custom module implements a complete real-time Blackjack game engine running entirely on the server side, which we justify as a Major module for the following reasons:
+
+- **Technical complexity**: The engine manages concurrent multi-player tables, enforces all Blackjack rules (hit, stand, bust, push, blackjack 3:2 payout, dealer AI drawing to 17), and handles the full game state machine across the Betting and Playing phases.
+- **Multi-player synchronisation**: Every game event (bet placed, card dealt, turn changed, round ended) is broadcast in real time to all connected players via the WebSocket gateway, requiring atomic state updates and race-condition-safe coin deduction and payout logic.
+- **Server-authoritative validation**: All outcomes are computed and validated server-side; the frontend is purely a display layer, preventing any client-side cheating.
+- **Integration depth**: The engine integrates with the statistics service (fire-and-forget round recording), the WebSocket dispatch layer, and the coin balance stored in the OAuth database — spanning three independent microservices.
 
 ---
 

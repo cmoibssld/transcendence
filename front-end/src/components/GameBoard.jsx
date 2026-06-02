@@ -255,6 +255,10 @@ function InlineChat({ wsRef, tableId, messages }) {
   const sendMessage = () => {
     const msg = draft.trim()
     if (!msg || wsRef.current?.readyState !== WebSocket.OPEN) return
+    if (msg.length > 500) {
+      // Message too long — block silently (maxLength on textarea prevents this in normal use)
+      return
+    }
     wsRef.current.send(JSON.stringify({
       kind: "chat.message",
       payload: { room_id: `table-${tableId}`, message: msg },
@@ -307,6 +311,7 @@ function InlineChat({ wsRef, tableId, messages }) {
           onKeyDown={handleKeyDown}
           placeholder="Message…"
           aria-label="Votre message"
+          maxLength={500}
         />
         <button type="submit" className="gb-chat__send" disabled={!draft.trim()} aria-label="Envoyer">
           ↵
@@ -368,15 +373,23 @@ export default function GameBoard() {
     let socket = null
 
     ;(async () => {
-      const token = await getFreshToken()
-      if (!token) { setStatus("Non authentifié — connectez-vous d'abord."); return }
+      // Verify user is logged in via localStorage (tokens are in HttpOnly cookies)
+      if (!localStorage.getItem("user_id")) {
+        setStatus("Non authentifié — connectez-vous d'abord.")
+        return
+      }
       if (cancelled) return
 
-      fetchCoins()
+      // Fetch coins before connecting — needed to decide if the player can join
+      const freshCoins = await apiFetch(`${AUTH_URL}/auth/balance`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d?.coins ?? 0)
+        .catch(() => 0)
+      setCoins(freshCoins)
+      if (cancelled) return
 
-      const url = new URL(WS_URL)
-      url.searchParams.set("token", token)
-      socket = new WebSocket(url.toString())
+      // Connect without token in URL — browser sends access_token HttpOnly cookie automatically
+      socket = new WebSocket(WS_URL)
       wsRef.current = socket
 
     setJoined(false); setGameInfo(null); setSelfId(null)
@@ -386,6 +399,10 @@ export default function GameBoard() {
     setStatus(`Connexion à la table ${tableId}…`)
 
     socket.onopen = () => {
+      if (freshCoins <= 0) {
+        setStatus("Vous n'avez pas de coins. Impossible de rejoindre la table.")
+        return
+      }
       socket.send(JSON.stringify({ kind: "game.join", payload: { table_id: Number(tableId) } }))
       const username = localStorage.getItem("username") ?? "Joueur"
       socket.send(JSON.stringify({
@@ -427,21 +444,25 @@ export default function GameBoard() {
 
       // ── game state ────────────────────────────────────────────────────────
       if (kind === "game.state") {
-        // Resolve unknown player names
-        const knownIds = new Set(Object.keys(selfIdRef.current ? {[selfIdRef.current]: true} : {}))
-        const newIds = (payload.players_in_game ?? Object.keys(payload.players_cards ?? {}))
-          .map(String)
-          .filter(id => id && !knownIds.has(id))
-        if (newIds.length > 0) {
+        // Resolve unknown player names using the server-provided player_id → user_id map
+        const userIdMap = payload.player_user_ids ?? {}  // { "player_id": user_id }
+        const playerIds = (payload.players_in_game ?? Object.keys(payload.players_cards ?? {})).map(String)
+        // Exclude self by player_id (selfIdRef.current is a player_id, same as pid)
+        const toFetch = playerIds.filter(pid => pid !== String(selfIdRef.current))
+        if (toFetch.length > 0) {
           setPlayerNames(prev => {
-            const missing = newIds.filter(id => !prev[id])
-            if (missing.length === 0) return prev
-            missing.forEach(id => {
-              fetch(`${AUTH_URL}/auth/users/byid?id=${id}`)
+            const missing = toFetch.filter(pid => {
+              const uid = String(userIdMap[pid])
+              return uid && !prev[pid]
+            })
+            missing.forEach(pid => {
+              const uid = userIdMap[pid]
+              if (!uid) return
+              apiFetch(`${AUTH_URL}/auth/users/byid?id=${uid}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(data => {
                   if (data?.username) {
-                    setPlayerNames(p => ({ ...p, [id]: data.username }))
+                    setPlayerNames(p => ({ ...p, [pid]: data.username }))
                   }
                 })
                 .catch(() => {})
@@ -507,9 +528,9 @@ export default function GameBoard() {
         clearRevealTimers()
         setRevealSeq({ cards: allDealerCards.slice(0, 2), flipping: true })
 
-        const FLIP     = 1400
-        const PER_CARD = 700
-        const AFTER    = 400
+        const FLIP     = 1600
+        const PER_CARD = 900
+        const AFTER    = 1000
 
         revealTimers.current.push(setTimeout(() => {
           setRevealSeq(prev => prev ? { ...prev, flipping: false } : null)
@@ -625,33 +646,36 @@ export default function GameBoard() {
     }
   }
 
-  // ── Betting timer ───────────────────────────────────────────────────────────
-  // Don't start the countdown while the outcome screen is visible — the player
-  // can't act until they dismiss it, so we'd auto-skip them unfairly.
+  // ── Betting timer (server-driven) ───────────────────────────────────────────
+  // bet_phase_started_at is a unix timestamp (seconds) sent in every game.state.
+  // All clients compute the same remaining time from this shared origin.
   useEffect(() => {
     if (!joined || phase !== "Betting" || !selfPendingBet || roundEnd !== null) {
       setBettingTimer(null)
       return
     }
-    setBettingTimer(BET_TIMER_MAX)
-    let t = BET_TIMER_MAX
-    // cleanup (clearInterval) always runs before effect re-runs — local t is safe here
+    const startedAt = gameInfo?.bet_phase_started_at ?? null
+    const remaining = () => {
+      if (!startedAt) return BET_TIMER_MAX
+      return Math.max(0, BET_TIMER_MAX - Math.floor(Date.now() / 1000 - startedAt))
+    }
+    setBettingTimer(remaining())
     const id = setInterval(() => {
-        t -= 1
-        setBettingTimer(t)
-        if (t <= 0) {
-            clearInterval(id)
-            setBettingTimer(null)
-            const ws = wsRef.current
-            if (ws?.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ kind: "game.skip", payload: {} }))
-            }
-            skippedRef.current = true
-            setSkippedThisRound(true)
+      const t = remaining()
+      setBettingTimer(t)
+      if (t <= 0) {
+        clearInterval(id)
+        setBettingTimer(null)
+        const ws = wsRef.current
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ kind: "game.skip", payload: {} }))
         }
+        skippedRef.current = true
+        setSkippedThisRound(true)
+      }
     }, 1000)
     return () => clearInterval(id)
-  }, [joined, phase, selfPendingBet, roundEnd])
+  }, [joined, phase, selfPendingBet, roundEnd, gameInfo?.bet_phase_started_at])
 
   // ── Turn timer ──────────────────────────────────────────────────────────────
   const TURN_TIMER_MAX = 30
@@ -743,6 +767,19 @@ export default function GameBoard() {
 
         {/* ── arena ───────────────────────────────────────────────────── */}
         <div className="gb-arena">
+          {coins !== null && coins <= 0 && !roundEnd && (
+            <div className="outcome-overlay outcome--lose" role="alert">
+              <div className="outcome-card">
+                <h2 className="outcome-title">Aucun coin</h2>
+                <p style={{ color: "var(--text-muted, #aaa)", marginBottom: "1rem" }}>
+                  Vous n'avez plus de coins pour miser.
+                </p>
+                <button className="outcome-btn" type="button" onClick={() => window.location.href = "/"}>
+                  Retour à l'accueil
+                </button>
+              </div>
+            </div>
+          )}
           {roundEnd && (
             <OutcomeScreen
               roundEnd={roundEnd}

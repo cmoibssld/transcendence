@@ -210,6 +210,7 @@ services:
       USER_SERVICE_URL:  https://oauth:8081
       GAME_SERVICE_URL:  https://game-engine:8080
       CHAT_SERVICE_URL:  https://chat:8090
+      INTERNAL_SECRET:   ${INTERNAL_SECRET:-dev-internal-secret-change-me}
       TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
       TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
       RUST_LOG: info
@@ -219,7 +220,12 @@ services:
       game-engine:
         condition: service_healthy
       chat:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8082/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
@@ -247,9 +253,9 @@ services:
       frontend:
         condition: service_started
       chat:
-        condition: service_started
+        condition: service_healthy
       ws-service:
-        condition: service_started
+        condition: service_healthy
     networks:
       - transcendance
 
@@ -265,6 +271,11 @@ services:
       WS_SERVICE_URL: https://ws-service:8082
       TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
       TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8090/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:

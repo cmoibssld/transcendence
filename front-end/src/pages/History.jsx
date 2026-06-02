@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiFetch, getAccessToken } from "../auth";
+import { apiFetch } from "../auth";
 import "../styles/History.css";
 
 const GAME_URL = import.meta.env.VITE_GAME_URL ?? "https://localhost:8443/api/game";
@@ -34,7 +34,7 @@ export default function History() {
   const [error,   setError]   = useState("");
 
   useEffect(() => {
-    if (!getAccessToken()) {
+    if (!localStorage.getItem('user_id')) {
       setError("Connecte-toi pour voir ton historique.");
       setLoading(false);
       return;

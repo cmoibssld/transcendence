@@ -1,6 +1,7 @@
 use actix_cors::Cors;
 use actix_session::{Session, SessionMiddleware, storage::CookieSessionStore};
-use actix_web::cookie::{Key, SameSite};
+use actix_web::cookie::{Cookie, Key, SameSite};
+use actix_web::cookie::time::{Duration as CookieDuration, OffsetDateTime};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result};
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use actix_web::http::header;
@@ -14,7 +15,7 @@ use jsonwebtoken::{encode, decode, EncodingKey, DecodingKey, Header, Validation}
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
 use std::time::{Duration as StdDuration, Instant};
@@ -24,9 +25,12 @@ mod schema;
 
 type DbPool = Pool<ConnectionManager<PgConnection>>;
 type HmacSha256 = Hmac<Sha256>;
-type CodeStore = Mutex<HashMap<String, (AuthResponse, Instant)>>;
+// (AuthResponse, user_id, created_at)
+type CodeStore = Mutex<HashMap<String, (AuthResponse, i32, Instant)>>;
 type LoginAttempts = Mutex<HashMap<String, (u32, Instant)>>;
-type PresenceMap = Mutex<HashSet<i32>>;
+// Maps user_id → last heartbeat time; entries older than PRESENCE_TTL are considered offline
+type PresenceMap = Mutex<HashMap<i32, Instant>>;
+const PRESENCE_TTL: StdDuration = StdDuration::from_secs(5 * 60);
 
 #[derive(Deserialize)]
 struct ExchangeQuery {
@@ -233,9 +237,12 @@ async fn issue_tokens(
 async fn refresh_token(
     pool: web::Data<DbPool>,
     req: HttpRequest,
-    body: web::Json<RefreshRequest>,
+    body: Option<web::Json<RefreshRequest>>,
 ) -> Result<HttpResponse> {
-    let client_token = body.refresh_token.trim().to_string();
+    let client_token = req.cookie("refresh_token")
+        .map(|c| c.value().to_string())
+        .or_else(|| body.as_ref().map(|b| b.refresh_token.trim().to_string()))
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("Missing refresh token"))?;
     let token_hash = hash_refresh_token(&client_token)?;
     let pool_clone = pool.clone();
 
@@ -263,13 +270,65 @@ async fn refresh_token(
     .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid refresh token"))?
     .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid refresh token"))?;
 
-    let response_data = issue_tokens(pool, user.id, user.username, None, &req).await?;
+    let resp = issue_tokens(pool, user.id, user.username, None, &req).await?;
 
-    Ok(HttpResponse::Ok().json(response_data))
+    Ok(HttpResponse::Ok()
+        .cookie(make_token_cookie("access_token",  resp.access_token,  900,            "/"))
+        .cookie(make_token_cookie("refresh_token", resp.refresh_token, 30 * 24 * 3600, "/auth/refresh"))
+        .json(serde_json::json!({
+            "username":   resp.username,
+            "avatar_url": resp.avatar_url,
+        })))
 }
 
-async fn register(pool: web::Data<DbPool>, body: web::Json<RegisterRequest>) -> impl Responder {
+async fn register(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    body: web::Json<RegisterRequest>,
+    attempts: web::Data<LoginAttempts>,
+) -> impl Responder {
+    let ip = req.connection_info().realip_remote_addr()
+        .unwrap_or("unknown")
+        .to_string();
+    if !check_rate_limit(&attempts, &ip) {
+        return HttpResponse::TooManyRequests()
+            .json(serde_json::json!({"error": "Too many requests, please wait"}));
+    }
+
     let user_data = body.into_inner();
+
+    // Validate password
+    if user_data.password.len() < 8 {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Password must be at least 8 characters"}));
+    }
+    if user_data.password.len() > 128 {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Password too long"}));
+    }
+    // Validate username
+    if user_data.username.trim().is_empty() || user_data.username.len() < 2 {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Username must be at least 2 characters"}));
+    }
+    if user_data.username.len() > 32 {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Username too long"}));
+    }
+    let allowed_username = user_data.username.chars().all(|c|
+        c.is_alphanumeric() || c == '_' || c == '-'
+    );
+    if !allowed_username {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Username may only contain letters, digits, _ and -"}));
+    }
+    // Validate email
+    let email_trimmed = user_data.email.trim();
+    if email_trimmed.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Email required"}));
+    }
+    if email_trimmed.len() > 254 {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Email too long"}));
+    }
+    if !email_trimmed.contains('@') || email_trimmed.starts_with('@') || email_trimmed.ends_with('@') {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "Invalid email format"}));
+    }
 
     let hashed_password = match hash(&user_data.password, DEFAULT_COST) {
         Ok(h) => h,
@@ -310,7 +369,7 @@ async fn register(pool: web::Data<DbPool>, body: web::Json<RegisterRequest>) -> 
 }
 
 fn check_rate_limit(attempts: &web::Data<LoginAttempts>, ip: &str) -> bool {
-    let mut map = attempts.lock().unwrap();
+    let mut map = attempts.lock().unwrap_or_else(|e| e.into_inner());
     let now = Instant::now();
     let entry = map.entry(ip.to_string()).or_insert((0, now));
     if entry.1.elapsed() > std::time::Duration::from_secs(60) {
@@ -356,6 +415,9 @@ async fn login(
     let user = match user_result {
         Ok(Ok(user)) => user,
         _ => {
+            // Timing equalization: prevent username enumeration via response timing
+            let _ = verify("timing_equalization_dummy",
+                "$2b$12$LIjD6gZbQJcYdGfFNl8C7uQK5XW6gQfJrT8NzJSw9JfLFvQeGXeKi");
             return HttpResponse::Unauthorized()
                 .json(serde_json::json!({"error": "Wrong credentials"}))
         }
@@ -373,9 +435,17 @@ async fn login(
             .json(serde_json::json!({"error": "Wrong credentials"}));
     }
 
+    let user_id = user.id;
     let avatar = if user.avatar.is_empty() { None } else { Some(user.avatar) };
-    match issue_tokens(pool, user.id, user.username, avatar, &req).await {
-        Ok(response_data) => HttpResponse::Ok().json(response_data),
+    match issue_tokens(pool, user_id, user.username, avatar, &req).await {
+        Ok(resp) => HttpResponse::Ok()
+            .cookie(make_token_cookie("access_token",  resp.access_token,  900,              "/"))
+            .cookie(make_token_cookie("refresh_token", resp.refresh_token, 30 * 24 * 3600,   "/auth/refresh"))
+            .json(serde_json::json!({
+                "username":   resp.username,
+                "avatar_url": resp.avatar_url,
+                "user_id":    user_id,
+            })),
         Err(_) => HttpResponse::InternalServerError()
             .json(serde_json::json!({"error": "Token generation failed"})),
     }
@@ -499,7 +569,13 @@ async fn github_callback(
     })
     .await
     .map_err(|_| actix_web::error::ErrorInternalServerError("User upsert failed"))?
-    .map_err(|_| actix_web::error::ErrorInternalServerError("User upsert failed"))?;
+    .map_err(|e| match e {
+        diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::UniqueViolation, _) => {
+            actix_web::error::ErrorConflict("An account with this email already exists")
+        }
+        _ => actix_web::error::ErrorInternalServerError("User upsert failed"),
+    })?;
 
     let response_data = issue_tokens(pool, user.id, user.username.clone(), Some(avatar), &req).await?;
 
@@ -511,7 +587,7 @@ async fn github_callback(
         .take(32)
         .map(char::from)
         .collect();
-    store.lock().unwrap().insert(one_time_code.clone(), (response_data, Instant::now()));
+    store.lock().unwrap_or_else(|e| e.into_inner()).insert(one_time_code.clone(), (response_data, user.id, Instant::now()));
 
     let redirect_url = format!("{}?code={}", frontend_redirect, urlencoding::encode(&one_time_code));
 
@@ -520,29 +596,33 @@ async fn github_callback(
         .finish())
 }
 
-async fn logout(pool: web::Data<DbPool>, body: web::Json<LogoutRequest>) -> impl Responder {
-    let client_token = body.refresh_token.trim().to_string();
-    let token_hash = match hash_refresh_token(&client_token) {
-        Ok(hash) => hash,
-        Err(_) => {
-            return HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": "hash failed"}))
+async fn logout(
+    pool: web::Data<DbPool>,
+    req: HttpRequest,
+    body: Option<web::Json<LogoutRequest>>,
+) -> impl Responder {
+    let client_token = req.cookie("refresh_token")
+        .map(|c| c.value().to_string())
+        .or_else(|| body.as_ref().map(|b| b.refresh_token.trim().to_string()));
+
+    if let Some(token) = client_token {
+        if let Ok(token_hash) = hash_refresh_token(&token) {
+            let pool = pool.clone();
+            let _ = web::block(move || {
+                use crate::schema::refresh_tokens::dsl as rt_dsl;
+                let mut conn = pool.get().expect("Failed to get DB connection from pool");
+                diesel::update(rt_dsl::refresh_tokens.filter(rt_dsl::token_hash.eq(&token_hash)))
+                    .set(rt_dsl::revoked_at.eq(Utc::now()))
+                    .execute(&mut conn)
+            })
+            .await;
         }
-    };
+    }
 
-    let pool = pool.clone();
-    let _ = web::block(move || {
-        use crate::schema::refresh_tokens::dsl as rt_dsl;
-        let mut conn = pool.get().expect("Failed to get DB connection from pool");
-        diesel::update(rt_dsl::refresh_tokens.filter(rt_dsl::token_hash.eq(&token_hash)))
-            .set(rt_dsl::revoked_at.eq(Utc::now()))
-            .execute(&mut conn)
-    })
-    .await;
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "message": "Logout success. Token revoked"
-    }))
+    HttpResponse::Ok()
+        .cookie(clear_cookie("access_token",  "/"))
+        .cookie(clear_cookie("refresh_token", "/auth/refresh"))
+        .json(serde_json::json!({"message": "Logout success. Token revoked"}))
 }
 
 async fn introspect(
@@ -601,13 +681,7 @@ async fn get_profile(
     req: HttpRequest,
     pool: web::Data<DbPool>,
 ) -> impl Responder {
-    let token = req
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_owned));
-
-    let token = match token {
+    let token = match extract_bearer_token(&req) {
         Some(t) => t,
         None => return HttpResponse::Unauthorized()
             .json(serde_json::json!({"error": "missing token"})),
@@ -674,6 +748,16 @@ async fn patch_profile(
         if b.len() > 300 {
             return HttpResponse::BadRequest()
                 .json(serde_json::json!({"error": "bio must be 300 characters or fewer"}));
+        }
+    }
+    if let Some(ref url) = data.avatar_url {
+        if !url.is_empty()
+            && !url.starts_with("https://")
+            && !url.starts_with("data:image/") {
+            return HttpResponse::BadRequest().json(serde_json::json!({"error": "Avatar must be an https:// URL or data:image/ URI"}));
+        }
+        if url.len() > 500_000 {
+            return HttpResponse::BadRequest().json(serde_json::json!({"error": "Avatar too large"}));
         }
     }
 
@@ -786,13 +870,7 @@ async fn get_balance(
     req: HttpRequest,
     pool: web::Data<DbPool>,
 ) -> impl Responder {
-    let token = req
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_owned));
-
-    let token = match token {
+    let token = match extract_bearer_token(&req) {
         Some(t) => t,
         None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "missing token"})),
     };
@@ -919,14 +997,16 @@ struct UpdateCoinsRequest {
 fn secrets_equal(a: &str, b: &str) -> bool {
     let a = a.as_bytes();
     let b = b.as_bytes();
-    if a.len() != b.len() {
-        return false;
+    // Pad shorter slice to avoid length leak
+    let max_len = a.len().max(b.len());
+    if max_len == 0 { return false; }
+    let mut result = a.len() ^ b.len(); // non-zero if lengths differ
+    for i in 0..max_len {
+        let ca = if i < a.len() { a[i] } else { 0 };
+        let cb = if i < b.len() { b[i] } else { 0 };
+        result |= (ca ^ cb) as usize;
     }
-    let mut diff = 0u8;
-    for (&x, &y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+    result == 0
 }
 
 fn check_internal_secret_with(req: &HttpRequest, secret: &str) -> Option<HttpResponse> {
@@ -965,14 +1045,21 @@ async fn update_coins(
     let result = web::block(move || -> Result<bool, diesel::result::Error> {
         use crate::schema::users::dsl as u;
         let mut conn = pool.get().expect("DB pool");
-        let current: i64 = u::users.filter(u::id.eq(user_id)).select(u::money).first(&mut conn)?;
-        if current + delta < 0 {
-            return Ok(false);
-        }
-        diesel::update(u::users.filter(u::id.eq(user_id)))
-            .set(u::money.eq(current + delta))
-            .execute(&mut conn)?;
-        Ok(true)
+
+        let rows = if delta < 0 {
+            // Deduction: only update if balance won't go negative
+            diesel::update(u::users.filter(
+                u::id.eq(user_id).and(u::money.ge(-delta))
+            ))
+            .set(u::money.eq(u::money + delta))
+            .execute(&mut conn)?
+        } else {
+            // Addition: always update
+            diesel::update(u::users.filter(u::id.eq(user_id)))
+                .set(u::money.eq(u::money + delta))
+                .execute(&mut conn)?
+        };
+        Ok(rows > 0)
     }).await;
 
     match result {
@@ -983,14 +1070,13 @@ async fn update_coins(
 }
 
 // Push a presence.update event to all online friends of `user_id`
-async fn dispatch_presence_to_friends(user_id: i32, online: bool, pool: web::Data<DbPool>) {
+async fn dispatch_presence_to_friends(user_id: i32, online: bool, pool: web::Data<DbPool>, client: web::Data<reqwest::Client>) {
     let ws_url = match env::var("WS_SERVICE_URL") {
         Ok(u) => u,
-        Err(_) => return, // no ws-service configured, skip
+        Err(_) => return,
     };
     let internal_secret = env::var("INTERNAL_SECRET").unwrap_or_default();
 
-    // Fetch friend IDs from DB
     let friend_ids: Vec<i32> = {
         let result = web::block(move || {
             use crate::schema::friendships::dsl as f;
@@ -1009,11 +1095,6 @@ async fn dispatch_presence_to_friends(user_id: i32, online: bool, pool: web::Dat
     };
 
     if friend_ids.is_empty() { return; }
-
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap_or_default();
 
     let event = serde_json::json!({
         "user_ids": friend_ids,
@@ -1035,18 +1116,32 @@ async fn presence_online(
     body: web::Json<PresenceRequest>,
     presence: web::Data<PresenceMap>,
     pool: web::Data<DbPool>,
+    client: web::Data<reqwest::Client>,
 ) -> impl Responder {
-    let user_id = if body.user_id != 0 {
+    // Accept internal service call (INTERNAL_SECRET) OR JWT-authenticated user
+    let user_id: i32 = if check_internal_secret(&req).is_none() {
+        // Called by ws-service — trust the body
         body.user_id as i32
     } else {
+        // Called by frontend — require valid JWT that matches body
         match extract_user_id(&req) {
-            Some(id) => id,
-            None => return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"})),
+            Some(jwt_uid) if jwt_uid == body.user_id as i32 => jwt_uid,
+            Some(_) => return HttpResponse::Forbidden()
+                .json(serde_json::json!({"error": "user_id mismatch"})),
+            None => return HttpResponse::Unauthorized()
+                .json(serde_json::json!({"error": "unauthorized"})),
         }
     };
-    let already_online = !presence.lock().unwrap().insert(user_id);
-    if !already_online {
-        dispatch_presence_to_friends(user_id, true, pool).await;
+    let now = Instant::now();
+    let was_offline = {
+        let mut map = presence.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = map.entry(user_id).or_insert_with(|| now);
+        let was_offline = entry.elapsed() > PRESENCE_TTL;
+        *entry = now;
+        was_offline
+    };
+    if was_offline {
+        dispatch_presence_to_friends(user_id, true, pool, client).await;
     }
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
@@ -1056,9 +1151,14 @@ async fn presence_online(
 struct UserByIdQuery { id: i32 }
 
 async fn lookup_user_by_id(
+    req:   HttpRequest,
     query: web::Query<UserByIdQuery>,
     pool:  web::Data<DbPool>,
 ) -> impl Responder {
+    let authed = extract_user_id(&req).is_some() || check_internal_secret(&req).is_none();
+    if !authed {
+        return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
+    }
     let id = query.id;
     let result = web::block(move || {
         use crate::schema::users::dsl as u;
@@ -1083,14 +1183,27 @@ async fn lookup_user_by_id(
 
 // Called by ws-service when a client disconnects
 async fn presence_offline(
+    req: HttpRequest,
     body: web::Json<PresenceRequest>,
     presence: web::Data<PresenceMap>,
     pool: web::Data<DbPool>,
+    client: web::Data<reqwest::Client>,
 ) -> impl Responder {
+    // Accept either internal service call or authenticated user
     let user_id = body.user_id as i32;
-    let was_online = presence.lock().unwrap().remove(&user_id);
+    let authorized = check_internal_secret(&req).is_none() || {
+        // JWT auth: extract user_id and verify it matches body
+        extract_user_id(&req).map_or(false, |jwt_uid| jwt_uid == user_id)
+    };
+    if !authorized {
+        return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
+    }
+    let was_online = {
+        let mut map = presence.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(&user_id).map_or(false, |t| t.elapsed() <= PRESENCE_TTL)
+    };
     if was_online {
-        dispatch_presence_to_friends(user_id, false, pool).await;
+        dispatch_presence_to_friends(user_id, false, pool, client).await;
     }
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
@@ -1126,8 +1239,12 @@ async fn get_presence(
 
     match result {
         Ok(Ok(friend_ids)) => {
-            let online_set = presence.lock().unwrap();
-            let online_ids: Vec<i32> = friend_ids.into_iter().filter(|id| online_set.contains(id)).collect();
+            let online_ids: Vec<i32> = {
+                let map = presence.lock().unwrap_or_else(|e| e.into_inner());
+                friend_ids.into_iter()
+                    .filter(|id| map.get(id).map_or(false, |t| t.elapsed() <= PRESENCE_TTL))
+                    .collect()
+            };
             HttpResponse::Ok().json(serde_json::json!({"online_ids": online_ids}))
         }
         _ => HttpResponse::InternalServerError().json(serde_json::json!({"error": "db error"})),
@@ -1143,9 +1260,13 @@ fn validate_lookup_username(username: &str) -> Option<HttpResponse> {
 }
 
 async fn lookup_user(
+    req: HttpRequest,
     query: web::Query<UserLookupQuery>,
     pool: web::Data<DbPool>,
 ) -> impl Responder {
+    if extract_user_id(&req).is_none() {
+        return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
+    }
     let username = query.username.trim().to_string();
     if let Some(err) = validate_lookup_username(&username) {
         return err;
@@ -1175,13 +1296,40 @@ async fn lookup_user(
     }
 }
 
-fn extract_user_id(req: &HttpRequest) -> Option<i32> {
-    let token = req
-        .headers()
+fn cookie_secure() -> bool {
+    env::var("COOKIE_SECURE").ok().as_deref() != Some("false")
+}
+
+fn make_token_cookie(name: &'static str, value: String, max_age_secs: i64, path: &'static str) -> Cookie<'static> {
+    Cookie::build(name, value)
+        .http_only(true)
+        .secure(cookie_secure())
+        .same_site(SameSite::Lax)
+        .path(path)
+        .max_age(CookieDuration::seconds(max_age_secs))
+        .finish()
+}
+
+fn clear_cookie(name: &'static str, path: &'static str) -> Cookie<'static> {
+    Cookie::build(name, "")
+        .http_only(true)
+        .secure(cookie_secure())
+        .same_site(SameSite::Lax)
+        .path(path)
+        .expires(OffsetDateTime::now_utc() - CookieDuration::days(1))
+        .finish()
+}
+
+fn extract_bearer_token(req: &HttpRequest) -> Option<String> {
+    req.headers()
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_owned))?;
+        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_owned))
+        .or_else(|| req.cookie("access_token").map(|c| c.value().to_string()))
+}
 
+fn extract_user_id(req: &HttpRequest) -> Option<i32> {
+    let token = extract_bearer_token(req)?;
     let jwt_secret = env::var("JWT_SECRET").ok()?;
     let data = jsonwebtoken::decode::<ClaimsJWT>(
         &token,
@@ -1434,12 +1582,18 @@ async fn exchange_code(
             .json(serde_json::json!({"error": "missing code"}));
     }
 
-    let mut map = store.lock().unwrap();
-    // Evict all expired entries on each call
-    map.retain(|_, (_, created_at)| created_at.elapsed() <= std::time::Duration::from_secs(60));
+    let mut map = store.lock().unwrap_or_else(|e| e.into_inner());
+    map.retain(|_, (_, _, created_at)| created_at.elapsed() <= std::time::Duration::from_secs(60));
 
     match map.remove(&code) {
-        Some((resp, _)) => HttpResponse::Ok().json(resp),
+        Some((resp, user_id, _)) => HttpResponse::Ok()
+            .cookie(make_token_cookie("access_token",  resp.access_token,  900,            "/"))
+            .cookie(make_token_cookie("refresh_token", resp.refresh_token, 30 * 24 * 3600, "/auth/refresh"))
+            .json(serde_json::json!({
+                "username":   resp.username,
+                "avatar_url": resp.avatar_url,
+                "user_id":    user_id,
+            })),
         None => HttpResponse::BadRequest()
             .json(serde_json::json!({"error": "invalid or expired code"})),
     }
@@ -1462,7 +1616,8 @@ async fn main() -> std::io::Result<()> {
     let secret_key = Key::from(session_key.as_bytes());
     let code_store: web::Data<CodeStore> = web::Data::new(Mutex::new(HashMap::new()));
     let login_attempts: web::Data<LoginAttempts> = web::Data::new(Mutex::new(HashMap::new()));
-    let presence: web::Data<PresenceMap> = web::Data::new(Mutex::new(HashSet::new()));
+    let presence: web::Data<PresenceMap> = web::Data::new(Mutex::new(HashMap::new()));
+    let http_client: web::Data<reqwest::Client> = web::Data::new(internal_http_client());
 
     HttpServer::new(move || {
         App::new()
@@ -1470,6 +1625,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(code_store.clone())
             .app_data(login_attempts.clone())
             .app_data(presence.clone())
+            .app_data(http_client.clone())
             .wrap(actix_web::middleware::Logger::default())
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
@@ -1522,6 +1678,20 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
+fn internal_http_client() -> reqwest::Client {
+    let path = std::env::var("TLS_CERT_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
+    let pem = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("Cannot read internal CA cert {path}: {e}"));
+    let cert = reqwest::Certificate::from_pem(&pem)
+        .expect("Invalid internal CA certificate PEM");
+    reqwest::Client::builder()
+        .add_root_certificate(cert)
+        .timeout(StdDuration::from_secs(5))
+        .build()
+        .expect("Failed to build HTTP client")
+}
+
 fn build_tls() -> openssl::ssl::SslAcceptorBuilder {
     let cert = std::env::var("TLS_CERT_FILE")
         .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
@@ -1565,7 +1735,7 @@ mod tests {
         );
         // Pre-seed one code
         {
-            let mut map = store.lock().unwrap();
+            let mut map = store.lock().unwrap_or_else(|e| e.into_inner());
             map.insert("testcode123".to_string(), (
                 AuthResponse {
                     access_token: "tok".into(),
@@ -1573,6 +1743,7 @@ mod tests {
                     username: "alice".into(),
                     avatar_url: None,
                 },
+                1i32,
                 Instant::now(),
             ));
         }
@@ -1625,7 +1796,7 @@ mod tests {
             Mutex::new(HashMap::new())
         );
         {
-            let mut map = store.lock().unwrap();
+            let mut map = store.lock().unwrap_or_else(|e| e.into_inner());
             map.insert("expiredcode".to_string(), (
                 AuthResponse {
                     access_token: "tok".into(),
@@ -1633,6 +1804,7 @@ mod tests {
                     username: "alice".into(),
                     avatar_url: None,
                 },
+                1i32,
                 Instant::now() - std::time::Duration::from_secs(61),
             ));
         }

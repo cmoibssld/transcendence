@@ -5,7 +5,10 @@ use actix_web_actors::ws;
 use log::info;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub mod api;
 
@@ -28,14 +31,26 @@ struct ServerEvent(api::OutboundEvent);
 struct ForceDisconnect;
 
 struct WsSession {
-    user_id: u64,
-    state:   AppState,
-    kicked:  bool, // true = replaced by a newer session, skip cleanup
+    user_id:        u64,
+    state:          AppState,
+    kicked:         bool,
+    last_heartbeat: Instant,
 }
 
 impl WsSession {
     fn new(user_id: u64, state: AppState) -> Self {
-        Self { user_id, state, kicked: false }
+        Self { user_id, state, kicked: false, last_heartbeat: Instant::now() }
+    }
+
+    fn start_heartbeat(&self, ctx: &mut ws::WebsocketContext<Self>) {
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            if Instant::now().duration_since(act.last_heartbeat) > CLIENT_TIMEOUT {
+                info!("User {} heartbeat timeout, disconnecting", act.user_id);
+                ctx.stop();
+                return;
+            }
+            ctx.ping(b"");
+        });
     }
 
     fn send_error(&self, ctx: &mut ws::WebsocketContext<Self>, message: &str) {
@@ -51,7 +66,9 @@ impl Actor for WsSession {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        let mut clients = self.state.clients.lock().unwrap();
+        self.start_heartbeat(ctx);
+
+        let mut clients = self.state.clients.lock().unwrap_or_else(|e| e.into_inner());
 
         // If a session already exists for this user, kick it before replacing
         if let Some(old_addr) = clients.get(&self.user_id) {
@@ -66,9 +83,11 @@ impl Actor for WsSession {
         let client   = self.state.http_client.clone();
         let user_url = self.state.user_service_url.clone();
         let user_id  = self.user_id;
+        let internal_secret = std::env::var("INTERNAL_SECRET").unwrap_or_default();
         actix_web::rt::spawn(async move {
             let _ = client
                 .post(format!("{}/auth/presence/online", user_url))
+                .header("X-Internal-Secret", &internal_secret)
                 .json(&serde_json::json!({"user_id": user_id}))
                 .send()
                 .await;
@@ -84,7 +103,7 @@ impl Actor for WsSession {
             return;
         }
 
-        let mut clients = self.state.clients.lock().unwrap();
+        let mut clients = self.state.clients.lock().unwrap_or_else(|e| e.into_inner());
         clients.remove(&self.user_id);
         drop(clients);
 
@@ -92,9 +111,11 @@ impl Actor for WsSession {
         let game_url  = self.state.game_service_url.clone();
         let user_url  = self.state.user_service_url.clone();
         let user_id   = self.user_id;
+        let internal_secret = std::env::var("INTERNAL_SECRET").unwrap_or_default();
         actix_web::rt::spawn(async move {
             let _ = client
                 .post(format!("{}/ws/ingest", game_url))
+                .header("X-Internal-Secret", &internal_secret)
                 .json(&serde_json::json!({
                     "user_id": user_id,
                     "kind":    "game.disconnect",
@@ -104,6 +125,7 @@ impl Actor for WsSession {
                 .await;
             let _ = client
                 .post(format!("{}/auth/presence/offline", user_url))
+                .header("X-Internal-Secret", &internal_secret)
                 .json(&serde_json::json!({"user_id": user_id}))
                 .send()
                 .await;
@@ -142,8 +164,13 @@ impl Handler<ServerEvent> for WsSession {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
     fn handle(&mut self, item: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match item {
-            Ok(ws::Message::Ping(payload)) => ctx.pong(&payload),
-            Ok(ws::Message::Pong(_)) => {}
+            Ok(ws::Message::Ping(payload)) => {
+                self.last_heartbeat = Instant::now();
+                ctx.pong(&payload);
+            }
+            Ok(ws::Message::Pong(_)) => {
+                self.last_heartbeat = Instant::now();
+            }
             Ok(ws::Message::Text(text)) => {
                 let parsed = serde_json::from_str::<api::ClientEvent>(&text);
                 let payload = match parsed {
@@ -158,7 +185,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                 let state = self.state.clone();
 
                 actix_web::rt::spawn(async move {
-                    let target_url = if payload.kind.starts_with("game.") {
+                    let is_game = payload.kind.starts_with("game.");
+                    let target_url = if is_game {
                         format!("{}/ws/ingest", state.game_service_url)
                     } else if payload.kind.starts_with("chat.") {
                         format!("{}/ws/message", state.chat_service_url)
@@ -167,9 +195,14 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                         return;
                     };
 
-                    let _ = state
-                        .http_client
-                        .post(target_url)
+                    let internal_secret = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+                    let req = state.http_client.post(target_url);
+                    let req = if is_game {
+                        req.header("X-Internal-Secret", &internal_secret)
+                    } else {
+                        req
+                    };
+                    let _ = req
                         .json(&api::ForwardEvent {
                             user_id,
                             kind: payload.kind,
@@ -195,20 +228,39 @@ async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({ "status": "ok" }))
 }
 
+fn extract_ws_token(req: &HttpRequest) -> Option<String> {
+    // 1. Query param (kept for backward compat during transition)
+    if let Ok(q) = web::Query::<api::WsQuery>::from_query(req.query_string()) {
+        if !q.token.is_empty() {
+            return Some(q.token.clone());
+        }
+    }
+    // 2. HttpOnly cookie (primary path after migration)
+    req.headers()
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookies| {
+            cookies.split(';')
+                .map(|s| s.trim())
+                .find(|s| s.starts_with("access_token="))
+                .map(|s| s["access_token=".len()..].to_string())
+        })
+}
+
 async fn ws_index(
     req: HttpRequest,
     stream: web::Payload,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, Error> {
-    let query = web::Query::<api::WsQuery>::from_query(req.query_string())
-        .map_err(|_| actix_web::error::ErrorBadRequest("Missing token"))?;
+    let token = extract_ws_token(&req)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Missing token"))?;
 
     let url = format!("{}/auth/introspect", state.user_service_url);
     let response = state
         .http_client
         .post(url)
         .json(&api::IntrospectRequest {
-            access_token: query.token.clone(),
+            access_token: token,
         })
         .send()
         .await
@@ -227,11 +279,26 @@ async fn ws_index(
     ws::start(session, &req, stream)
 }
 
+fn check_internal_secret(req: &HttpRequest) -> bool {
+    let expected = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+    if expected.is_empty() { return false; }
+    let provided = req.headers()
+        .get("X-Internal-Secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if expected.len() != provided.len() { return false; }
+    expected.bytes().zip(provided.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+}
+
 async fn dispatch_event(
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<api::DispatchRequest>,
 ) -> impl Responder {
-    let clients = state.clients.lock().unwrap();
+    if !check_internal_secret(&req) {
+        return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
+    }
+    let clients = state.clients.lock().unwrap_or_else(|e| e.into_inner());
     info!(
         "Dispatch: kind={}, user_ids={:?}, connected={}",
         body.event.kind,
@@ -268,11 +335,7 @@ async fn main() -> std::io::Result<()> {
     let chat_service_url =
         std::env::var("CHAT_SERVICE_URL").unwrap_or_else(|_| "https://chat:8090".to_string());
 
-    let http_client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(Duration::from_secs(5))
-        .build()
-        .expect("Failed to build HTTP client");
+    let http_client = internal_http_client();
 
     let state = AppState {
         clients: web::Data::new(Mutex::new(HashMap::new())),
@@ -292,6 +355,20 @@ async fn main() -> std::io::Result<()> {
     .bind_openssl((host.as_str(), port), build_tls())?
     .run()
     .await
+}
+
+fn internal_http_client() -> reqwest::Client {
+    let path = std::env::var("TLS_CERT_FILE")
+        .unwrap_or_else(|_| "/etc/ssl/transcendence/dev-cert.pem".to_string());
+    let pem = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("Cannot read internal CA cert {path}: {e}"));
+    let cert = reqwest::Certificate::from_pem(&pem)
+        .expect("Invalid internal CA certificate PEM");
+    reqwest::Client::builder()
+        .add_root_certificate(cert)
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("Failed to build HTTP client")
 }
 
 fn build_tls() -> openssl::ssl::SslAcceptorBuilder {
