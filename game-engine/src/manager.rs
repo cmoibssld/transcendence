@@ -330,6 +330,9 @@ impl GameData {
         }
     }
 
+    // Betting phase window: 30s shown on frontend + 5s server-side grace period
+    const BETTING_WINDOW_SECS: u64 = 35;
+
     fn do_bet(&mut self, user_id: u64, payload: &serde_json::Value) -> IngestResult {
         let (table_id, player_id) = match self.user_sessions.get(&user_id) {
             Some(&s) => s,
@@ -340,6 +343,19 @@ impl GameData {
                 broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
             },
         };
+
+        // Enforce server-side betting window
+        if let Some(table) = self.tables.get(&table_id) {
+            let elapsed = crate::blackjack::now_secs().saturating_sub(table.info.bet_phase_started_at);
+            if elapsed > Self::BETTING_WINDOW_SECS {
+                return IngestResult {
+                    personal: Some(serde_json::json!({
+                        "kind": "game.error", "payload": { "message": "Betting phase has expired" }
+                    })),
+                    broadcast: None, post_broadcast: None, audience: vec![user_id], history: None, coin_updates: vec![],
+                };
+            }
+        }
 
         let amount = match payload.get("amount").and_then(|v| v.as_u64()) {
             Some(a) if a > 0 => a,

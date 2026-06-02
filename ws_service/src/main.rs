@@ -19,6 +19,7 @@ struct AppState {
     user_service_url: String,
     game_service_url: String,
     chat_service_url: String,
+    internal_secret: String,
 }
 
 #[derive(Message)]
@@ -80,10 +81,10 @@ impl Actor for WsSession {
         info!("User {} connected", self.user_id);
         drop(clients);
 
-        let client   = self.state.http_client.clone();
-        let user_url = self.state.user_service_url.clone();
-        let user_id  = self.user_id;
-        let internal_secret = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+        let client          = self.state.http_client.clone();
+        let user_url        = self.state.user_service_url.clone();
+        let user_id         = self.user_id;
+        let internal_secret = self.state.internal_secret.clone();
         actix_web::rt::spawn(async move {
             let _ = client
                 .post(format!("{}/auth/presence/online", user_url))
@@ -107,11 +108,11 @@ impl Actor for WsSession {
         clients.remove(&self.user_id);
         drop(clients);
 
-        let client    = self.state.http_client.clone();
-        let game_url  = self.state.game_service_url.clone();
-        let user_url  = self.state.user_service_url.clone();
-        let user_id   = self.user_id;
-        let internal_secret = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+        let client          = self.state.http_client.clone();
+        let game_url        = self.state.game_service_url.clone();
+        let user_url        = self.state.user_service_url.clone();
+        let user_id         = self.user_id;
+        let internal_secret = self.state.internal_secret.clone();
         actix_web::rt::spawn(async move {
             let _ = client
                 .post(format!("{}/ws/ingest", game_url))
@@ -182,7 +183,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                 };
 
                 let user_id = self.user_id;
-                let state = self.state.clone();
+                let state   = self.state.clone();
 
                 actix_web::rt::spawn(async move {
                     let is_game = payload.kind.starts_with("game.");
@@ -191,18 +192,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                     } else if payload.kind.starts_with("chat.") {
                         format!("{}/ws/message", state.chat_service_url)
                     } else {
-                        // presence.* and others are handled locally (disconnect in stopped())
                         return;
                     };
 
-                    let internal_secret = std::env::var("INTERNAL_SECRET").unwrap_or_default();
-                    let req = state.http_client.post(target_url);
-                    let req = if is_game {
-                        req.header("X-Internal-Secret", &internal_secret)
-                    } else {
-                        req
-                    };
-                    let _ = req
+                    let _ = state.http_client
+                        .post(target_url)
+                        .header("X-Internal-Secret", &state.internal_secret)
                         .json(&api::ForwardEvent {
                             user_id,
                             kind: payload.kind,
@@ -229,13 +224,8 @@ async fn health() -> impl Responder {
 }
 
 fn extract_ws_token(req: &HttpRequest) -> Option<String> {
-    // 1. Query param (kept for backward compat during transition)
-    if let Ok(q) = web::Query::<api::WsQuery>::from_query(req.query_string()) {
-        if !q.token.is_empty() {
-            return Some(q.token.clone());
-        }
-    }
-    // 2. HttpOnly cookie (primary path after migration)
+    // Token must come from the HttpOnly cookie only — never from URL params
+    // (URL params appear in server logs, browser history, and Referer headers)
     req.headers()
         .get("cookie")
         .and_then(|v| v.to_str().ok())
@@ -279,8 +269,7 @@ async fn ws_index(
     ws::start(session, &req, stream)
 }
 
-fn check_internal_secret(req: &HttpRequest) -> bool {
-    let expected = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+fn check_internal_secret(req: &HttpRequest, expected: &str) -> bool {
     if expected.is_empty() { return false; }
     let provided = req.headers()
         .get("X-Internal-Secret")
@@ -295,7 +284,7 @@ async fn dispatch_event(
     state: web::Data<AppState>,
     body: web::Json<api::DispatchRequest>,
 ) -> impl Responder {
-    if !check_internal_secret(&req) {
+    if !check_internal_secret(&req, &state.internal_secret) {
         return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
     }
     let clients = state.clients.lock().unwrap_or_else(|e| e.into_inner());
@@ -334,6 +323,8 @@ async fn main() -> std::io::Result<()> {
         std::env::var("GAME_SERVICE_URL").unwrap_or_else(|_| "https://game-engine:8080".to_string());
     let chat_service_url =
         std::env::var("CHAT_SERVICE_URL").unwrap_or_else(|_| "https://chat:8090".to_string());
+    let internal_secret =
+        std::env::var("INTERNAL_SECRET").unwrap_or_default();
 
     let http_client = internal_http_client();
 
@@ -343,6 +334,7 @@ async fn main() -> std::io::Result<()> {
         user_service_url,
         game_service_url,
         chat_service_url,
+        internal_secret,
     };
 
     HttpServer::new(move || {

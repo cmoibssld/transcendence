@@ -10,6 +10,8 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+struct InternalSecret(pub String);
+
 // ── Message envelope used everywhere ─────────────────────────────────────────
 
 #[derive(Clone, Serialize)]
@@ -252,8 +254,7 @@ fn validate_room_id(room_id: &str) -> bool {
         && room_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
 }
 
-fn check_internal_secret(req: &HttpRequest) -> Result<(), HttpResponse> {
-    let expected = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+fn check_internal_secret(req: &HttpRequest, expected: &str) -> Result<(), HttpResponse> {
     if expected.is_empty() {
         return Err(HttpResponse::InternalServerError()
             .json(serde_json::json!({"error": "server misconfigured"})));
@@ -262,7 +263,6 @@ fn check_internal_secret(req: &HttpRequest) -> Result<(), HttpResponse> {
         .get("X-Internal-Secret")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    // Constant-time comparison
     let secret_ok = expected.len() == provided.len()
         && expected.bytes().zip(provided.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
     if !secret_ok {
@@ -288,9 +288,9 @@ async fn ws_message(
     hub: web::Data<Mutex<ChatHub>>,
     http_client: web::Data<reqwest::Client>,
     ws_url: web::Data<String>,
+    secret: web::Data<InternalSecret>,
 ) -> HttpResponse {
-    // Vérifier que l'appel vient d'un service interne autorisé
-    if let Err(resp) = check_internal_secret(&req) {
+    if let Err(resp) = check_internal_secret(&req, &secret.0) {
         return resp;
     }
 
@@ -434,9 +434,9 @@ async fn post_message(
     req: HttpRequest,
     body: web::Json<PostMessageBody>,
     hub: web::Data<Mutex<ChatHub>>,
+    secret: web::Data<InternalSecret>,
 ) -> HttpResponse {
-    // Vérifier que l'appel vient d'un service interne autorisé
-    if let Err(resp) = check_internal_secret(&req) {
+    if let Err(resp) = check_internal_secret(&req, &secret.0) {
         return resp;
     }
 
@@ -499,9 +499,11 @@ async fn main() -> std::io::Result<()> {
 
     let ws_service_url = std::env::var("WS_SERVICE_URL")
         .unwrap_or_else(|_| "https://ws-service:8082".to_string());
+    let internal_secret = std::env::var("INTERNAL_SECRET").unwrap_or_default();
 
     let http_client = web::Data::new(internal_http_client());
-    let ws_url = web::Data::new(ws_service_url);
+    let ws_url      = web::Data::new(ws_service_url);
+    let secret      = web::Data::new(InternalSecret(internal_secret));
 
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -523,6 +525,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(hub.clone())
             .app_data(http_client.clone())
             .app_data(ws_url.clone())
+            .app_data(secret.clone())
             .route("/rooms/{room_id}/ws", web::get().to(ws_room))
             .service(post_message)
             .service(ws_message)

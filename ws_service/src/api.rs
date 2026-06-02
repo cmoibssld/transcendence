@@ -1,11 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Deserialize)]
-pub struct WsQuery {
-    pub token: String,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct IntrospectRequest {
     pub access_token: String,

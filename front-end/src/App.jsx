@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react"
-import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router-dom"
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom"
 import Header from "./components/Header"
 import Footer from "./components/Footer"
 import Home from "./pages/Home"
@@ -63,13 +63,20 @@ function useGlobalPresence() {
     const userId = Number(localStorage.getItem("user_id"))
     if (!userId) return
 
-    const ping = () =>
+    const ping = () => {
+      // Re-check on each tick so the interval self-cancels after logout
+      const currentId = Number(localStorage.getItem("user_id"))
+      if (!currentId) {
+        clearInterval(pingRef.current)
+        return
+      }
       fetch(`${AUTH_URL}/auth/presence/online`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",  // sends access_token HttpOnly cookie
-        body: JSON.stringify({ user_id: userId }),
+        credentials: "include",
+        body: JSON.stringify({ user_id: currentId }),
       }).catch(() => {})
+    }
 
     ping()
     pingRef.current = setInterval(ping, 4 * 60 * 1000)
@@ -91,6 +98,12 @@ function useGlobalPresence() {
   }, [])
 }
 
+function ProtectedRoute({ children }) {
+  const userId = localStorage.getItem("user_id")
+  if (!userId) return <Navigate to="/login" replace />
+  return children
+}
+
 function App() {
   useGlobalPresence()
   return (
@@ -103,15 +116,15 @@ function App() {
             <Route path="/auth/callback" element={<OAuthCallback />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/friends" element={<Friends />} />
-            <Route path="/statistics" element={<Statistics />} />
-            <Route path="/rules" element={<Rules />} />
-            <Route path="/game" element={<Game />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/history" element={<History />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
+            <Route path="/rules" element={<Rules />} />
+            <Route path="/profile"    element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/friends"    element={<ProtectedRoute><Friends /></ProtectedRoute>} />
+            <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
+            <Route path="/game"       element={<ProtectedRoute><Game /></ProtectedRoute>} />
+            <Route path="/settings"   element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/history"    element={<ProtectedRoute><History /></ProtectedRoute>} />
           </Routes>
         </main>
         <Footer />

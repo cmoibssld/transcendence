@@ -10,14 +10,12 @@ mod manager;
 
 use manager::{GameData, IngestResult};
 
-fn check_internal_secret(req: &HttpRequest) -> bool {
-    let expected = std::env::var("INTERNAL_SECRET").unwrap_or_default();
+fn check_internal_secret(req: &HttpRequest, expected: &str) -> bool {
     if expected.is_empty() { return false; }
     let provided = req.headers()
         .get("X-Internal-Secret")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    // Constant-time comparison to avoid timing attacks
     if expected.len() != provided.len() { return false; }
     expected.bytes().zip(provided.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
@@ -55,7 +53,7 @@ async fn ws_ingest(
     bet_guard:  web::Data<Arc<Mutex<HashSet<u64>>>>,
     body:       web::Json<ForwardEvent>,
 ) -> impl Responder {
-    if !check_internal_secret(&req) {
+    if !check_internal_secret(&req, &cfg.internal_secret) {
         return HttpResponse::Unauthorized().json(serde_json::json!({"error": "unauthorized"}));
     }
 
@@ -156,17 +154,27 @@ async fn ws_ingest(
         }
     }
 
-    // Credit winners — fire-and-forget
+    // Credit winners — retry up to 3 times with backoff
     for (uid, delta) in result.coin_updates {
         let c2     = client.clone();
         let uu     = cfg.user_service_url.clone();
         let secret = cfg.internal_secret.clone();
         actix_web::rt::spawn(async move {
-            let _ = c2.post(format!("{}/auth/internal/coins", uu))
-                .header("X-Internal-Secret", secret)
-                .json(&serde_json::json!({ "user_id": uid as i32, "delta": delta }))
-                .send()
-                .await;
+            for attempt in 0u32..3 {
+                if attempt > 0 {
+                    tokio::time::sleep(Duration::from_millis(500 * 2u64.pow(attempt - 1))).await;
+                }
+                match c2.post(format!("{}/auth/internal/coins", uu))
+                    .header("X-Internal-Secret", &secret)
+                    .json(&serde_json::json!({ "user_id": uid as i32, "delta": delta }))
+                    .send()
+                    .await
+                {
+                    Ok(r) if r.status().is_success() => break,
+                    Ok(r) => log::warn!("Coin credit attempt {} failed: HTTP {}", attempt + 1, r.status()),
+                    Err(e) => log::warn!("Coin credit attempt {} error: {}", attempt + 1, e),
+                }
+            }
         });
     }
 

@@ -287,7 +287,7 @@ Each **major module** = 2 points, each **minor module** = 1 point. A minimum of 
 | 7 | **Server-Side Game Logic** — Blackjack engine fully server-side with validated outcomes *(Module of choice — see justification below)* | Major | 2 | awarlamo / acolonne |
 | 8 | **User and Game Stats Dashboards** — stats, leaderboards, match history | Minor | 1 | acolonne |
 
-**Total: 6 major × 2 + 1 minor × 1 + 1 module of choice × 2 = 15 points**
+**Total: 5 major × 2 + 1 module of choice × 2 + 2 minor × 1 = 14 points**
 
 ### Module of choice — justification: Server-Side Game Logic (Major)
 

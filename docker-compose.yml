@@ -269,6 +269,7 @@ services:
       CHAT_HOST: 0.0.0.0
       CHAT_PORT: 8090
       WS_SERVICE_URL: https://ws-service:8082
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret-change-me}
       TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
       TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
     healthcheck:
