@@ -1,0 +1,30 @@
+[package]
+name = "oauth" # the name of the package
+version = "0.1.0"    # the current version, obeying semver
+edition = "2021"
+
+[dependencies]
+actix-web = { version = "4", features = ["openssl"] }
+openssl = "0.10"
+actix-cors = "0.7"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.149"
+actix-files = "0.6.8"
+
+actix-session = {version = "0.8", features = ["cookie-session"]}
+actix-web-httpauth = "0.8"
+reqwest = { version = "0.12", features = ["json"] }
+dotenv = "0.15.0"
+actix-web-lab = "0.26.0"
+
+jsonwebtoken = "9.2"
+chrono = "0.4"
+rand = "0.8"
+bcrypt = "0.15"
+diesel = { version = "2.2.4", features = ["postgres", "r2d2", "chrono"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+urlencoding = "2.1"
+env_logger = "0.10"
+log = "0.4"

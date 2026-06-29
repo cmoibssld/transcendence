@@ -1,25 +1,292 @@
 services:
-db:
-image: postgres:16
-container_name: transcendance_db
-restart: unless-stopped
-environment:
-POSTGRES_USER: diesel
-POSTGRES_PASSWORD: dieselpass
-POSTGRES_DB: transcendance
-ports:
+  db_oauth:
+    image: docker.io/library/postgres:16
+    container_name: transcendance_db_oauth
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: diesel
+      POSTGRES_PASSWORD: dieselpass
+      POSTGRES_DB: transcendance_oauth
+    volumes:
+      - pgdata_oauth:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diesel -d transcendance_oauth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - transcendance
 
-    "5432:5432"
+  db_history:
+    image: docker.io/library/postgres:16
+    container_name: transcendance_db_history
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: diesel
+      POSTGRES_PASSWORD: dieselpass
+      POSTGRES_DB: transcendance_history
+    volumes:
+      - pgdata_history:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diesel -d transcendance_history"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - transcendance
+
+  api:
+    build:
+      context: db
+      dockerfile: docker/api.Dockerfile
+    container_name: transcendance_api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://diesel:dieselpass@db_oauth:5432/transcendance_oauth
+      API_HOST: 0.0.0.0
+      API_PORT: 3443
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+    depends_on:
+      db_oauth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:3443/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
+    networks:
+      - transcendance
+
+  dev:
+    build:
+      context: db
+      dockerfile: docker/dev.Dockerfile
+    container_name: transcendance_dev
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      CARGO_HOME: /usr/local/cargo
+      RUSTUP_HOME: /usr/local/rustup
+      DATABASE_URL: postgres://diesel:dieselpass@db_oauth:5432/transcendance_oauth
+      API_HOST: 0.0.0.0
+      API_PORT: 3443
+    depends_on:
+      db_oauth:
+        condition: service_healthy
+    volumes:
+      - ./db:/app
+    networks:
+      - transcendance
+    profiles:
+      - dev
+    stdin_open: true
+    tty: true
+
+  oauth:
+    build:
+      context: oauth
+      dockerfile: Dockerfile
+    container_name: transcendance_oauth
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://diesel:dieselpass@db_oauth:5432/transcendance_oauth
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev-refresh-secret-change-me}
+      SESSION_KEY: ${SESSION_KEY:-dev-session-key-do-not-use-in-prod-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-https://localhost:8443/auth/github/callback}
+      FRONTEND_REDIRECT_URL: ${FRONTEND_REDIRECT_URL:-https://localhost:8443/auth/callback}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      GITHUB_ID: ${GITHUB_ID}
+      GITHUB_SECRET: ${GITHUB_SECRET}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+      RUST_LOG: info,actix_web=info
+      WS_SERVICE_URL: https://ws-service:8082
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
+    networks:
+      - transcendance
+
+  frontend:
+    build:
+      context: front-end
+      dockerfile: Dockerfile
+      args:
+        VITE_AUTH_URL: https://localhost:8443
+        VITE_GAME_URL: https://localhost:8443/api/game
+        VITE_CHAT_URL: https://localhost:8443/api/chat
+        VITE_WS_URL: wss://localhost:8443/ws
+    container_name: transcendance_frontend
+    restart: unless-stopped
+    depends_on:
+      oauth:
+        condition: service_healthy
+    environment:
+      VITE_AUTH_URL: https://localhost:8443
+      VITE_GAME_URL: https://localhost:8443/api/game
+      VITE_CHAT_URL: https://localhost:8443/api/chat
+      VITE_WS_URL: wss://localhost:8443/ws
+    networks:
+      - transcendance
+
+  stats-service:
+    build:
+      context: stats-service
+      dockerfile: Dockerfile
+    container_name: transcendance_stats
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:     postgres://diesel:dieselpass@db_history:5432/transcendance_history
+      USER_SERVICE_URL: https://oauth:8081
+      INTERNAL_SECRET:  ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+      RUST_LOG: info
+    depends_on:
+      db_history:
+        condition: service_healthy
+      oauth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8083/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
+    networks:
+      - transcendance
+
+  game-engine:
+    build:
+      context: game-engine
+      dockerfile: Dockerfile
+    container_name: transcendance_game_engine
+    restart: unless-stopped
+    environment:
+      WS_SERVICE_URL:    https://ws-service:8082
+      USER_SERVICE_URL:  https://oauth:8081
+      STATS_SERVICE_URL: https://stats-service:8083
+      INTERNAL_SECRET:   ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      MAX_TABLES:        ${MAX_TABLES:-3}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+      RUST_LOG: info
+    depends_on:
+      oauth:
+        condition: service_healthy
+      stats-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
+    networks:
+      - transcendance
+
+  ws-service:
+    build:
+      context: ws_service
+      dockerfile: Dockerfile
+    container_name: transcendance_ws_service
+    restart: unless-stopped
+    environment:
+      WS_HOST: 0.0.0.0
+      WS_PORT: 8082
+      USER_SERVICE_URL:  https://oauth:8081
+      GAME_SERVICE_URL:  https://game-engine:8080
+      CHAT_SERVICE_URL:  https://chat:8090
+      INTERNAL_SECRET:   ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+      RUST_LOG: info
+    depends_on:
+      oauth:
+        condition: service_healthy
+      game-engine:
+        condition: service_healthy
+      chat:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8082/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
+    networks:
+      - transcendance
+
+  reverse-proxy:
+    build:
+      context: reverse-proxy
+      dockerfile: Dockerfile
+    container_name: transcendance_reverse_proxy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8443:443"
+    volumes:
+      - ./reverse-proxy/certs:/etc/nginx/certs:ro
+      - ./reverse-proxy/conf/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      oauth:
+        condition: service_healthy
+      game-engine:
+        condition: service_healthy
+      stats-service:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+      chat:
+        condition: service_healthy
+      ws-service:
+        condition: service_healthy
+    networks:
+      - transcendance
+
+  chat:
+    build:
+      context: chat
+      dockerfile: Dockerfile
+    container_name: transcendance_chat
+    restart: unless-stopped
+    environment:
+      CHAT_HOST: 0.0.0.0
+      CHAT_PORT: 8090
+      WS_SERVICE_URL: https://ws-service:8082
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret-change-me}
+      TLS_CERT_FILE: /etc/ssl/transcendence/dev-cert.pem
+      TLS_KEY_FILE:  /etc/ssl/transcendence/dev-key.pem
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sfk https://localhost:8090/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
+    networks:
+      - transcendance
+
+networks:
+  transcendance:
+    driver: bridge
 
 volumes:
-
-    pgdata:/var/lib/postgresql/data
-
-healthcheck:
-test: ["CMD-SHELL", "pg_isready -U diesel -d transcendance"]
-interval: 5s
-timeout: 5s
-retries: 10
-
-volumes:
-pgdata:
+  pgdata_oauth:
+  pgdata_history:

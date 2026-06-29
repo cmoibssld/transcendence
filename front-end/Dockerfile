@@ -1,0 +1,51 @@
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build-time env vars for Vite (must be ARG + ENV, not just ENV)
+ARG VITE_AUTH_URL=https://localhost:8443
+ARG VITE_GAME_URL=https://localhost:8443/api/game
+ARG VITE_CHAT_URL=https://localhost:8443/api/chat
+ARG VITE_WS_URL=wss://localhost:8443/ws
+ENV VITE_AUTH_URL=$VITE_AUTH_URL
+ENV VITE_GAME_URL=$VITE_GAME_URL
+ENV VITE_CHAT_URL=$VITE_CHAT_URL
+ENV VITE_WS_URL=$VITE_WS_URL
+
+# Build — bust layer cache when source files change
+COPY src ./src
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install a lightweight HTTP server to serve the static files
+RUN npm install -g serve
+
+# Copy built app from builder stage (owned by the built-in non-root `node` user)
+COPY --from=builder --chown=node:node /app/dist ./dist
+
+# Drop root privileges — serve static files as the unprivileged node user
+USER node
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Start the application
+CMD ["serve", "-s", "dist", "-l", "3000"]

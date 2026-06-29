@@ -1,0 +1,135 @@
+.stats-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 28px;
+}
+
+/* ── Personal stat cards ── */
+.stat-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.stat-card {
+  padding: 18px 16px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-card-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stat-card-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ── Leaderboard grid ── */
+.lb-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+@media (max-width: 720px) {
+  .lb-grid { grid-template-columns: 1fr; }
+}
+
+.lb-table-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lb-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+
+.lb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.lb-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.lb-table td {
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.lb-table tr:last-child td { border-bottom: none; }
+
+.lb-rank {
+  font-weight: 700;
+  color: var(--muted);
+  width: 32px;
+}
+
+.lb-top-1 .lb-rank { color: #f2c461; }
+.lb-top-2 .lb-rank { color: #b0b8c8; }
+.lb-top-3 .lb-rank { color: #c4804a; }
+
+.lb-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.lb-avatar {
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.lb-avatar-initial {
+  border-radius: 8px;
+  background: rgba(196, 168, 130, 0.12);
+  border: 1px solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.lb-value {
+  font-weight: 700;
+  text-align: right;
+  color: var(--accent);
+}
+
+.stats-muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
