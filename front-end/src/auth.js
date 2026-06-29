@@ -1,4 +1,6 @@
-const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
+import { resolveHttpUrl } from "./lib/publicUrls"
+
+const AUTH_URL = resolveHttpUrl(import.meta.env.VITE_AUTH_URL, "")
 
 // All requests use credentials: "include" so the browser sends the HttpOnly
 // access_token cookie automatically. No manual token management needed.

@@ -32,6 +32,28 @@ type LoginAttempts = Mutex<HashMap<String, (u32, Instant)>>;
 type PresenceMap = Mutex<HashMap<i32, Instant>>;
 const PRESENCE_TTL: StdDuration = StdDuration::from_secs(45);
 
+fn is_loopback_host(value: &str) -> bool {
+    value.contains("localhost")
+        || value.contains("127.0.0.1")
+        || value.contains("[::1]")
+        || value.contains("::1")
+}
+
+fn resolve_public_url(req: &HttpRequest, configured: Option<String>, path: &str) -> String {
+    let host = req.connection_info().host().to_string();
+    if let Some(configured) = configured {
+        let configured = configured.trim();
+        if !configured.is_empty() && !is_loopback_host(configured) {
+            return configured.to_string();
+        }
+        if !configured.is_empty() && is_loopback_host(configured) && is_loopback_host(&host) {
+            return configured.to_string();
+        }
+    }
+
+    format!("https://{}{}", host, path)
+}
+
 #[derive(Deserialize)]
 struct ExchangeQuery {
     code: String,
@@ -451,10 +473,13 @@ async fn login(
     }
 }
 
-async fn github_login(session: Session) -> Result<HttpResponse> {
+async fn github_login(req: HttpRequest, session: Session) -> Result<HttpResponse> {
     let client_id = env::var("GITHUB_ID").expect("GITHUB_ID must be set");
-    let redirect_uri = env::var("OAUTH_REDIRECT_URI")
-        .unwrap_or_else(|_| "https://localhost:8443/auth/github/callback".to_string());
+    let redirect_uri = resolve_public_url(
+        &req,
+        env::var("OAUTH_REDIRECT_URI").ok(),
+        "/auth/github/callback",
+    );
     let scope = "read:user";
     let state: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -580,8 +605,11 @@ async fn github_callback(
 
     let response_data = issue_tokens(pool, user.id, user.username.clone(), Some(avatar), &req).await?;
 
-    let frontend_redirect = env::var("FRONTEND_REDIRECT_URL")
-        .unwrap_or_else(|_| "https://localhost:8443/auth/callback".to_string());
+    let frontend_redirect = resolve_public_url(
+        &req,
+        env::var("FRONTEND_REDIRECT_URL").ok(),
+        "/auth/callback",
+    );
 
     let one_time_code: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)

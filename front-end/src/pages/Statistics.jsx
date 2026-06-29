@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../auth";
+import { resolveHttpUrl } from "../lib/publicUrls";
 import "../styles/Statistics.css";
 
-const GAME_URL = import.meta.env.VITE_GAME_URL ?? "https://localhost:8443/api/game";
+const GAME_URL = resolveHttpUrl(import.meta.env.VITE_GAME_URL, "/api/game");
 
 function Avatar({ username, avatarUrl, size = 32 }) {
   if (avatarUrl)

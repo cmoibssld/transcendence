@@ -46,7 +46,11 @@ export default function Header() {
       setAvatarUrl(localStorage.getItem('avatar_url') || null)
     }
     window.addEventListener('profile-updated', sync)
-    return () => window.removeEventListener('profile-updated', sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener('profile-updated', sync)
+      window.removeEventListener('storage', sync)
+    }
   }, [])
 
   const navLinks = isLoggedIn ? NAV_AUTH : NAV_PUBLIC

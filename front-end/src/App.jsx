@@ -15,6 +15,7 @@ import Register from "./pages/Register"
 import History from "./pages/History"
 import PrivacyPolicy from "./pages/PrivacyPolicy"
 import TermsOfService from "./pages/TermsOfService"
+import { resolveHttpUrl } from "./lib/publicUrls"
 import "./App.css"
 
 function OAuthCallback() {
@@ -26,7 +27,7 @@ function OAuthCallback() {
     const code = params.get("code")
     if (!code) return
 
-    const authUrl = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
+    const authUrl = resolveHttpUrl(import.meta.env.VITE_AUTH_URL, "")
     fetch(`${authUrl}/auth/exchange?code=${encodeURIComponent(code)}`, {
       credentials: "include"
     })
@@ -40,6 +41,7 @@ function OAuthCallback() {
           if (data.username)   localStorage.setItem("username",   data.username)
           if (data.avatar_url) localStorage.setItem("avatar_url", data.avatar_url ?? "")
           if (data.user_id)    localStorage.setItem("user_id",    String(data.user_id))
+          window.dispatchEvent(new Event('profile-updated'))
           navigate("/", { replace: true })
         } else {
           navigate(`/login?error=oauth_failed&reason=no_tokens`, { replace: true })
@@ -54,7 +56,7 @@ function OAuthCallback() {
   return null
 }
 
-const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
+const AUTH_URL = resolveHttpUrl(import.meta.env.VITE_AUTH_URL, "")
 
 function useGlobalPresence() {
   const pingRef = useRef(null)

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { apiFetch, getFreshToken } from "../auth"
+import { resolveHttpUrl, resolveWsUrl } from "../lib/publicUrls"
 
 import "../styles/GameBoard.css"
 
-const GAME_URL = import.meta.env.VITE_GAME_URL || "https://localhost:8443/api/game"
-const WS_URL   = import.meta.env.VITE_WS_URL   || "wss://localhost:8443/ws"
-const AUTH_URL = import.meta.env.VITE_AUTH_URL  || "https://localhost:8443"
+const GAME_URL = resolveHttpUrl(import.meta.env.VITE_GAME_URL, "/api/game")
+const WS_URL   = resolveWsUrl(import.meta.env.VITE_WS_URL, "/ws")
+const AUTH_URL = resolveHttpUrl(import.meta.env.VITE_AUTH_URL, "")
 
 const CARD_IMAGES = import.meta.glob("../assets/cards/*.png", { eager: true, import: "default" })
 

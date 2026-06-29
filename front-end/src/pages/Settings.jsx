@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../auth'
+import { resolveHttpUrl } from '../lib/publicUrls'
 
-const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? 'https://localhost:8443'
+const AUTH_URL = resolveHttpUrl(import.meta.env.VITE_AUTH_URL, '')
 
 export default function Settings() {
   const [profile,  setProfile]  = useState(null)

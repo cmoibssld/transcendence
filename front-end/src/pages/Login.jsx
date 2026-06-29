@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Link, useLocation } from "react-router-dom"
+import { resolveHttpUrl } from "../lib/publicUrls"
 import "../styles/Login.css"
 
 const Login = () => {
@@ -12,7 +13,7 @@ const Login = () => {
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
 
-    const authBaseUrl = import.meta.env.VITE_AUTH_URL ?? "https://localhost:8443"
+    const authBaseUrl = resolveHttpUrl(import.meta.env.VITE_AUTH_URL, "")
 
     const handleChange = (e) => {
         const { name, value } = e.target

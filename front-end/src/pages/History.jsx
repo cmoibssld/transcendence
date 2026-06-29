@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../auth";
+import { resolveHttpUrl } from "../lib/publicUrls";
 import "../styles/History.css";
 
-const GAME_URL = import.meta.env.VITE_GAME_URL ?? "https://localhost:8443/api/game";
+const GAME_URL = resolveHttpUrl(import.meta.env.VITE_GAME_URL, "/api/game");
 
 const OUTCOME_META = {
   win:       { label: "Win",       color: "#48c96a", bg: "rgba(72,201,106,0.10)"  },

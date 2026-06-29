@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import '../styles/Profile.css'
 import { apiFetch } from '../auth'
+import { resolveHttpUrl } from '../lib/publicUrls'
 
-const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? 'https://localhost:8443'
+const AUTH_URL = resolveHttpUrl(import.meta.env.VITE_AUTH_URL, '')
 
 const DEFAULT_AVATAR = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%231a1a22'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%23c4a882' opacity='.55'/%3E%3Cellipse cx='32' cy='54' rx='20' ry='14' fill='%23c4a882' opacity='.35'/%3E%3C/svg%3E`
 
