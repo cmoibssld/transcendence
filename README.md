@@ -1,60 +1,73 @@
-*This project has been created as part of the 42 curriculum by aloun (aloun.colonne@gmail.com).*
+*This project has been created as part of the 42 curriculum by acolonne, aguilleu, cabarrou, jlepany.*
 
 # Luigi Jack — Multiplayer Blackjack Platform
 
-> A 42 school project (ft_transcendence) — a fully containerised, microservices-based Blackjack platform with real-time multiplayer, live chat, OAuth 2.0, and a statistics engine.
+## Description
 
-**Team:** acolonne · aguilleu · awarlamo · cabarrou · jlepany
+The goal of this project is to create a fully functional, containerised web application as part of the 42 *ft_transcendence* curriculum. 
+
+Luigi Jack is a microservices-based Blackjack platform that allows users to play real-time multiplayer games, interact via live chat, securely authenticate using OAuth 2.0, and track their performance through a comprehensive statistics engine. It demonstrates advanced technical skills, including a Rust backend, WebSocket synchronization, strict server-side game logic validation, and a modern React frontend.
+
+**Team:** acolonne · aguilleu · cabarrou · jlepany
 
 ---
 
 ## Table of Contents
 
-1. [Team Roles](#team-roles)
-2. [Tech Stack](#tech-stack)
-3. [Architecture](#architecture)
-4. [Database Schema](#database-schema)
-5. [Features & Who Built What](#features--who-built-what)
-6. [Modules & Points](#modules--points)
-7. [Getting Started](#getting-started)
-8. [Environment Variables](#environment-variables)
-9. [Resources](#resources)
+1. [Description](#description)
+2. [Team Information & Roles](#team-information--roles)
+3. [Project Management](#project-management)
+4. [Technical Stack](#technical-stack)
+5. [Architecture](#architecture)
+6. [Database Schema](#database-schema)
+7. [Individual Contributions & Features](#individual-contributions--features)
+8. [Modules & Points](#modules--points)
+9. [Instructions](#instructions)
+10. [Environment Variables](#environment-variables)
+11. [Resources](#resources)
 
 ---
 
-## Team Roles
+## Team Information & Roles
 
-| Login | Role |
-|---|---|
-| **acolonne** | Auth service (security hardening, OAuth code exchange, rate limiting, refresh tokens) · Game engine frontend integration · Statistics & friends UI · Full frontend overhaul · Internal HTTPS |
-| **aguilleu** | Database layer (Diesel ORM, PostgreSQL, migrations) · Docker Compose infrastructure · OAuth DB schema · Reverse proxy initial setup |
-| **awarlamo** | Game engine (Rust/actix-web, Blackjack logic, table management) · WebSocket gateway · nginx reverse proxy + TLS · Docker orchestration |
-| **cabarrou** | Profile page · Friends page · Rules page |
-| **jlepany** | WebSocket service refactor · Chat service migration & ws-service integration |
+According to the project requirements, our team was structured with the following agile roles and technical responsibilities:
+
+| Login | Project Role | Technical Responsibilities |
+|---|---|---|
+| **acolonne** | **Product Owner (PO) / Developer** | Auth service (security hardening, OAuth code exchange, rate limiting, refresh tokens) · Chatservice |
+| **aguilleu** | **Scrum Manager (PM) / Developer** | Database layer (PostgreSQL with ORM) · Game Statistics · OAuth DB schema |
+| **jlepany** | **Architect (Tech Lead) / Developer** | WebSocket service · Game engine (Rust/actix-web, Blackjack logic, table management) |
+| **cabarrou** | **Developer** | Frontend and assets · Friends page · Rules page |
 
 ---
 
-## Tech Stack
+## Project Management
+
+* **Task Distribution & Tracking:** Use of Focalboard (Trello-like tool to organize work) and git branch.
+* **Communication Channels:** Weekly meet-ups and continous Discord communication.
+* **Code Review & Workflow:** Work on two-person team to overcome technical obstacles. Code review by one other team member with explaination.
+
+---
+
+## Technical Stack
 
 ### Backend — all services in Rust
 
 | Crate | Purpose |
 |---|---|
-| `actix-web 4` | HTTP server for all 5 backend services |
-| `actix` + `actix-web-actors` | Actor model for WebSocket connections (ws-service, chat) |
-| `diesel 2` + `r2d2` | ORM + connection pooling (oauth, stats-service) |
-| `openssl 0.10` | TLS for all internal services (`bind_openssl`) |
+| `actix-web 4` | HTTP server for all 5 backend services + actix web actor to handle websockets |
+| `diesel 2`| ORM for two PostgreSql db (oauth, stats-service) |
 | `jsonwebtoken 9` | JWT signing / verification (HS256) |
 | `bcrypt 0.15` | Password hashing |
-| `hmac` + `sha2` | Refresh token hashing |
-| `reqwest 0.12` | Async HTTP client for inter-service calls |
-| `tokio 1` | Async runtime |
+| `openssl 0.10` | SSL encryption for HTTP communication |
+
 
 ### Frontend
 
 | Library | Version | Purpose |
 |---|---|---|
 | React | 19 | UI framework |
+| Tailwind | 4 | CSS framework |
 | Vite | 8 | Build tool / dev server |
 | React Router | 7 | Client-side routing |
 | react-icons | 5 | Icon set |
@@ -65,70 +78,48 @@
 |---|---|
 | nginx | Reverse proxy — HTTP→HTTPS redirect, TLS termination, routing, WebSocket upgrade |
 | PostgreSQL 16 | Two isolated databases (`transcendance_oauth`, `transcendance_history`) |
-| Docker Compose | Container orchestration — internal bridge network, no exposed backend ports |
+| Docker Compose | Container orchestration — no exposed backend ports |
 
 ---
 
 ## Architecture
 
-```
+```text
 Browser
   │
   ▼  :80  ──► HTTP → HTTPS redirect
 nginx :443
   │
   ├── /auth/             ──► oauth         :8081  (TLS)
-  ├── /ws                ──► ws-service    :8082  (TLS, WebSocket upgrade)
-  ├── /api/game/history  ──► stats-service :8083  (TLS)
-  ├── /api/game/stats/   ──► stats-service :8083  (TLS)
-  ├── /api/game/leader/  ──► stats-service :8083  (TLS)
-  ├── /api/game/         ──► game-engine   :8080  (TLS)
-  ├── /api/chat/         ──► chat          :8090  (TLS, WebSocket upgrade)
+  ├── /ws/               ──► ws-service    :8082  (TLS, WebSocket upgrade)
+  ├── /db/               ──► ORM           :3443  (TLS)
+  ├── /game/             ──► game-engine   :8080  (TLS)
+  ├── /chat/             ──► chat          :8090  (TLS, WebSocket upgrade)
   └── /                  ──► frontend      :3000  (HTTP — TLS terminates at nginx)
-
-Internal service calls (all HTTPS, self-signed cert, verify disabled):
-  game-engine  ──POST /internal/rounds──► stats-service
-  game-engine  ──POST /dispatch        ──► ws-service
-  ws-service   ──POST /auth/introspect ──► oauth
-  chat         ──POST /dispatch        ──► ws-service
-```
-
-All containers share the `transcendance` Docker bridge network. No backend port is exposed to the host — only nginx on `80` and `443`.
+````
+All containers share the transcendance Docker bridge network. No backend port is exposed to the host — only nginx on 80 and 443.
 
 ### Service ports (internal)
 
 | Service | Port | Exposed to host |
-|---|---|---|
+| :--- | :--- | :--- |
 | oauth | 8081 | — |
 | game-engine | 8080 | — |
 | stats-service | 8083 | — |
 | ws-service | 8082 | — |
 | chat | 8090 | — |
 | frontend | 3000 | — |
-| nginx | 80 / 443 | **80**, **443** |
+| nginx | 80 / 443 | 80, 443 |
 | db_oauth | 5432 | — |
 | db_history | 5432 | — |
-
-### Startup chain (healthcheck dependency order)
-
-```
-db_oauth (healthy)
-    └── api — migration runner (healthy)
-            └── oauth (healthy)
-                    ├── frontend
-                    ├── stats-service (healthy)
-                    │       └── game-engine (healthy)
-                    │               └── ws-service
-                    └── reverse-proxy
-```
 
 ---
 
 ## Database Schema
 
-### `transcendance_oauth`
+### transcendance_oauth
 
-```
+```plaintext
 ┌─────────────────────────────┐       ┌───────────────────────────────────┐
 │ users                       │       │ refresh_tokens                    │
 ├─────────────────────────────┤       ├───────────────────────────────────┤
@@ -153,13 +144,12 @@ db_oauth (healthy)
              │              declined)       │
              │ created_at  TIMESTAMPTZ      │
              └──────────────────────────────┘
-```
+````
+Constraints: no_self_friend (requester ≠ addressee), unique_pair.
 
-Constraints: `no_self_friend` (requester ≠ addressee), `unique_pair`.
+### transcendance_history
 
-### `transcendance_history`
-
-```
+```text
 ┌──────────────────────────────┐       ┌─────────────────────────────────────┐
 │ game_rounds                  │       │ round_players                       │
 ├──────────────────────────────┤       ├─────────────────────────────────────┤
@@ -187,206 +177,130 @@ Constraints: `no_self_friend` (requester ≠ addressee), `unique_pair`.
 └────────────────────────────────────┘
 ```
 
----
+## Individual Contributions & Features
 
-## Features & Who Built What
+### Authentication & User Management (acolonne, aguilleu)
+* **Email/password registration** with bcrypt (acolonne)
+* **GitHub OAuth 2.0** (CSRF-safe with session, one-time code exchange) (acolonne)
+* **JWT access & refresh tokens** (HMAC-hashed, rotation) (acolonne / aguilleu)
+* **Per-IP rate limiting** & Constant-time secret comparison (acolonne)
+* **POST /auth/introspect** for downstream services validation (aguilleu)
+* **User profile, friends search endpoints** (aguilleu)
+* **Challenges faced:** Managing secure token rotation without exposing secrets to the frontend required implementing a strict HttpOnly cookie strategy and one-time code exchange.
 
-### Authentication & User Management
-| Feature | Owner |
-|---|---|
-| Email/password registration with bcrypt | aguilleu |
-| GitHub OAuth 2.0 (CSRF-safe with session, one-time code exchange) | acolonne |
-| JWT access tokens (15 min, HS256) | aguilleu / acolonne |
-| HMAC-hashed refresh tokens (30 days, DB-stored, rotation) | acolonne |
-| Per-IP rate limiting on `/auth/login` (5 req/min) | acolonne |
-| `POST /auth/introspect` — token validation for downstream services | aguilleu |
-| `GET /auth/users?username=` — user search for friend requests | acolonne |
-| `GET /auth/profile` — authenticated profile endpoint | acolonne |
-| Constant-time secret comparison (timing-attack prevention) | acolonne |
-| Shared `X-Internal-Secret` header for inter-service authentication | acolonne |
+### Blackjack Game Engine (jlepany)
+* **Blackjack logic, dealer AI, multi-table management** (jlepany)
+* **Per-round betting** with coin deduction and payout (jlepany)
+* **Timer-based sit-out** & fire-and-forget history recording (jlepany)
+* **Real-time event dispatch** via ws-service (jlepany)
+* **Challenges faced:** Ensuring atomic coin deduction to prevent race conditions during concurrent bets required implementing a strict lock mechanism and rollback workflow.
 
-### Blackjack Game Engine
-| Feature | Owner |
-|---|---|
-| Blackjack logic (hit, stand, bust, push, blackjack detection) | awarlamo |
-| Multi-table management with concurrent sessions | awarlamo |
-| Per-round betting with coin deduction and payout (1:1 / 1.5:1) | awarlamo |
-| Dealer AI (draws until ≥ 17) | awarlamo |
-| Timer-based sit-out (skip round without auto-bet) | acolonne |
-| Fire-and-forget history recording to stats-service | acolonne |
-| Real-time event dispatch to players via ws-service | awarlamo |
+### WebSocket Gateway & Chat (jlepany, acolonne)
+* **JWT-authenticated WebSocket endpoint & routing** (acolonne)
+* **Actix-web-actors refactor** with TLS (jlepany)
+* **Chat service migration** & ws-service integration (jlepany)
+* **In-memory chat history** per room & embedded in-game panel (acolonne)
+* **Challenges faced:** Decoupling the WebSocket gateway from the chat logic required building a reliable internal message dispatcher across microservices.]
 
-### WebSocket Gateway (`ws-service`)
-| Feature | Owner |
-|---|---|
-| JWT-authenticated WebSocket endpoint (`GET /ws?token=`) | awarlamo |
-| Message routing by `kind` prefix (`game.*`, `chat.*`) | awarlamo |
-| `POST /dispatch` — internal push to specific user sessions | awarlamo |
-| Refactor to actix-web-actors with TLS | jlepany |
+### Statistics Service (cabarrou)
+* **Round recording** & paginated match history (cabarrou)
+* **Personal stats & Leaderboards** (`user_stats` pre-aggregated totals) (acolonne)
 
-### Chat
-| Feature | Owner |
-|---|---|
-| WebSocket rooms with actix actors (`ChatSession`, `ChatHub`) | awarlamo |
-| Last-50-message in-memory history per room, sent on join | awarlamo |
-| Per-table embedded chat column in game board | acolonne |
-| HTTP `POST /rooms/{id}/messages` for programmatic posting | awarlamo |
-| Chat service migration to ws-service integration | jlepany |
+### Infrastructure & DevOps (aguilleu, jlepany)
+* **Docker Compose** & nginx reverse proxy (aguilleu, jlepany)
+* **Internal HTTPS** & restricted backend ports (jlepany)
+* **PostgreSQL migrations** with Diesel CLI (aguilleu)
 
-### Statistics Service
-| Feature | Owner |
-|---|---|
-| `POST /internal/rounds` — round recording (secret-authenticated) | acolonne |
-| `GET /history` — paginated match history | acolonne |
-| `GET /stats/me` and `GET /stats/friend` — personal stats | acolonne |
-| `GET /leaderboard/wins`, `/wagered`, `/gains` | acolonne |
-| `user_stats` pre-aggregated totals, updated per round | acolonne |
-
-### Infrastructure & DevOps
-| Feature | Owner |
-|---|---|
-| Docker Compose — full stack orchestration, healthcheck chain | aguilleu / awarlamo |
-| nginx reverse proxy — routing, TLS termination, WebSocket upgrade | awarlamo |
-| Internal HTTPS (all backend services use `bind_openssl`) | acolonne |
-| No exposed backend ports — all traffic through nginx | acolonne |
-| Self-signed TLS certificates for development | awarlamo |
-| PostgreSQL migrations with Diesel CLI | aguilleu |
-| Stats-service split from game-engine (microservices refactor) | acolonne |
-
-### Frontend (React 19 / Vite)
-| Feature | Owner |
-|---|---|
-| Dark glassmorphism design system (CSS variables, Space Grotesk) | acolonne |
-| Auth-aware header with avatar and logout | acolonne |
-| Home, Login, Register pages | acolonne |
-| Game board (cards, dealer, bet UI, timer countdown, inline chat) | acolonne |
-| Profile page (avatar, bio, stats display) | cabarrou / acolonne |
-| Friends page (user search, add/accept friends) | cabarrou |
-| History page (match log with outcomes) | acolonne |
-| Statistics page (personal stats, leaderboard) | acolonne |
-| Settings page | acolonne |
-| Rules page | cabarrou |
-| Privacy Policy & Terms of Service pages + footer | acolonne |
-| GitHub OAuth callback flow (`/auth/callback`) | acolonne |
-| JWT refresh token rotation (automatic client-side) | acolonne |
+### Frontend - React 19 / Vite (cabarrou, acolonne)
+* **Dark glassmorphism design system** & Game board (cabarrou)
+* **Profile, Friends, and Rules pages** (cabarrou)
+* **History, Statistics, Settings, Privacy Policy & TOS pages** (cabarrou)
+* **GitHub OAuth callback flow** & JWT refresh handling (acolonne)
 
 ---
 
 ## Modules & Points
+Each major module = 2 points, each minor module = 1 point. A minimum of 14 points is required.
 
-Each **major module** = 2 points, each **minor module** = 1 point. A minimum of **14 points** is required.
+| # | Module Type | Points | Owner(s) | Implementation Summary |
+| :-: | --- | :-: | --- | --- |
+| **1** | Backend and Frontend Framework (Major) | 2 | Built entirely with Rust and actix-web for high performance. React and Tailwind for the frontend |
+| **2** | Real-time features using WebSockets| 2 | WebSocket rooms, blackjack game using real-time WebSockets and livechat |
+| **3** | User interacting with each other (Major) | 2 | Live chat + profile user information + friends system |
+| **4** | ORM for the dtabase (Minor) | 1 | Diesel ORM database
+| **5** | Standard User Management (Major) | 2 | Full auth flow, avatars, profile, friends system. |
+| **6** | User and Game Stats Dashboards (Minor) | 1 | Comprehensive stats, leaderboards, and detailed match history pages. |
+| **7** | OAuth 2.0 Authentication (Minor) | 1 | Integrated GitHub OAuth with CSRF protection and secure code exchange. |
+| **8** | Complete web-based game where users can play against each other (Major) | 2 | Complete multiplayer Blackjack where players play against each other.|
+| **9** | Remote players (Major) | 2 | Enable two players on separate computers to play the same game in real-time
+| **10** | Multiplayer game (Major) | 2 | 3 players can play at the same time on the same table
+| **11** | Backend as microservices. (Major) | 2 | Independent backend services communicating over internal HTTPS.
 
-| # | Module | Type | Points | Owner(s) |
-|---|---|---|---|---|
-| 1 | **Backend Framework** — all services built in Rust/actix-web | Major | 2 | aguilleu / awarlamo |
-| 2 | **Standard User Management** — registration, login, profile, avatar, friends | Major | 2 | acolonne / cabarrou |
-| 3 | **OAuth 2.0 Authentication** — GitHub OAuth with CSRF protection and secure code exchange | Minor | 1 | acolonne |
-| 4 | **Remote Players** — real-time multiplayer Blackjack via WebSocket | Major | 2 | awarlamo |
-| 5 | **Live Chat** — rooms, 50-message history, embedded in-game panel | Major | 2 | awarlamo / jlepany |
-| 6 | **Microservices Architecture** — 5 independent backend services, internal HTTPS | Major | 2 | all |
-| 7 | **Server-Side Game Logic** — Blackjack engine fully server-side with validated outcomes *(Module of choice — see justification below)* | Major | 2 | awarlamo / acolonne |
-| 8 | **User and Game Stats Dashboards** — stats, leaderboards, match history | Minor | 1 | acolonne |
+**Total:** 8 major × 2 + 3 minor × 1 = **19 points**
 
-**Total: 5 major × 2 + 1 module of choice × 2 + 2 minor × 1 = 14 points**
 
-### Module of choice — justification: Server-Side Game Logic (Major)
-
-This custom module implements a complete real-time Blackjack game engine running entirely on the server side, which we justify as a Major module for the following reasons:
-
-- **Technical complexity**: The engine manages concurrent multi-player tables, enforces all Blackjack rules (hit, stand, bust, push, blackjack 3:2 payout, dealer AI drawing to 17), and handles the full game state machine across the Betting and Playing phases.
-- **Multi-player synchronisation**: Every game event (bet placed, card dealt, turn changed, round ended) is broadcast in real time to all connected players via the WebSocket gateway, requiring atomic state updates and race-condition-safe coin deduction and payout logic.
-- **Server-authoritative validation**: All outcomes are computed and validated server-side; the frontend is purely a display layer, preventing any client-side cheating.
-- **Integration depth**: The engine integrates with the statistics service (fire-and-forget round recording), the WebSocket dispatch layer, and the coin balance stored in the OAuth database — spanning three independent microservices.
-
----
-
-## Getting Started
+## Instructions
 
 ### Prerequisites
+* Docker + Docker Compose v2
+* A GitHub OAuth App ([create one](https://github.com/settings/developers))
+  * **Homepage URL:** `https://url:8443`
+  * **Authorization callback URL:** `https://url:8443/auth/github/callback`
 
-- Docker + Docker Compose v2
-- A GitHub OAuth App ([create one](https://github.com/settings/developers))
-  - Homepage URL: `https://localhost:8443`
-  - Authorization callback URL: `https://localhost:8443/auth/github/callback`
+### Execution
 
-### Quick start
+    # 1. Copy and fill in required secrets
+    cp .env.example .env
+    # Edit .env — set GITHUB_ID, GITHUB_SECRET, and regenerate the random secrets
 
-```bash
-# 1. Copy and fill in required secrets
-cp .env.example .env
-# Edit .env — set GITHUB_ID, GITHUB_SECRET, and regenerate the random secrets
+    # 2. Build and start the full stack
+    docker compose up --build
 
-# 2. Build and start the full stack
-docker compose up --build
+    # 3. Open the app (accept the self-signed cert warning in your browser)
+    open https://localhost:8443
 
-# 3. Open the app (accept the self-signed cert warning in your browser)
-open https://localhost:8443
-```
+### Compilation and Development (Live Reload)
 
-### Development (live reload)
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-```
+    docker compose -f docker-compose.yml up
 
 This mounts source directories and enables live reload for frontend, game-engine, and chat.
 
-### Running services individually
 
-```bash
-# Frontend
-cd front-end
-npm install
-npm run dev        # Vite dev server on :5173
-npm run lint
+### Database installations & migrations
+Migrations run automatically at startup via the api container.
 
-# Any Rust service
-cd oauth           # or game-engine, stats-service, ws_service, chat
-cargo build
-cargo test
-cargo clippy
-```
-
-### Database migrations
-
-Migrations run automatically at startup via the `api` container. To run manually:
-
-```bash
-# OAuth database
-docker compose --profile dev run --rm dev diesel migration run
-
-# Stats/history database
-cd stats-service
-DATABASE_URL=postgres://diesel:dieselpass@localhost:5433/transcendance_history \
-  diesel migration run
-```
-
----
 
 ## Environment Variables
 
 Copy `.env.example` to `.env` and fill in the required values.  
-The compose file provides safe **development defaults** for everything except `GITHUB_ID` and `GITHUB_SECRET`.
+The compose file provides safe development defaults for everything except `GITHUB_ID` and `GITHUB_SECRET`.
 
 | Variable | Required | Description |
-|---|---|---|
+| --- | :-: | --- |
 | `GITHUB_ID` | **yes** | GitHub OAuth App client ID |
 | `GITHUB_SECRET` | **yes** | GitHub OAuth App client secret |
-| `JWT_SECRET` | yes | HMAC-SHA256 secret for JWT signing (`openssl rand -hex 32`) |
-| `REFRESH_TOKEN_SECRET` | yes | Secret for hashing refresh tokens (`openssl rand -hex 32`) |
-| `SESSION_KEY` | yes | ≥64-byte key for CSRF session cookie (`openssl rand -hex 64`) |
-| `INTERNAL_SECRET` | yes | Shared secret for inter-service calls (`openssl rand -hex 32`) |
-| `OAUTH_REDIRECT_URI` | yes | GitHub OAuth callback, e.g. `https://localhost:8443/auth/github/callback` |
-| `FRONTEND_REDIRECT_URL` | yes | Post-OAuth redirect, e.g. `https://localhost:8443/auth/callback` |
+| `JWT_SECRET` | **yes** | HMAC-SHA256 secret for JWT signing (`openssl rand -hex 32`) |
+| `REFRESH_TOKEN_SECRET` | **yes** | Secret for hashing refresh tokens (`openssl rand -hex 32`) |
+| `SESSION_KEY` | **yes** | ≥64-byte key for CSRF session cookie (`openssl rand -hex 64`) |
+| `INTERNAL_SECRET` | **yes** | Shared secret for inter-service calls (`openssl rand -hex 32`) |
+| `OAUTH_REDIRECT_URI` | **yes** | GitHub OAuth callback, e.g. `https://url:8443/auth/github/callback` |
+| `FRONTEND_REDIRECT_URL` | **yes** | Post-OAuth redirect, e.g. `https://url:8443/auth/callback` |
 | `COOKIE_SECURE` | no | `true` in production (HTTPS only), `false` in dev |
 
 ---
 
 ## Resources
 
-- [The Rust Programming Language](https://doc.rust-lang.org/book/) — primary Rust reference
-- [The Rocket Programming Guide](https://rocket.rs/guide/v0.5/) — early framework exploration
-- [Actix Web Documentation](https://actix.rs/docs/) — framework used for all backend services
-- [Diesel ORM Guide](https://diesel.rs/guides/) — database access and migrations
-- [Are we web yet?](https://www.arewewebyet.org/) — Rust web ecosystem overview
-- [Simple Reverse Proxy](https://github.com/MarmadileManteater/SimpleReverseProxy) — nginx gateway inspiration
+### Artificial Intelligence Usage
+As required by the curriculum guidelines, AI was utilized strategically to reduce repetitive tasks and assist with architectural brainstorming. No generated code was integrated without full comprehension and peer review.
+* **Architectural Planning:** Brainstorm patterns for microservices communication in Rust (HTTP vs. WebSockets).
+* **Boilerplate & CSS:** Generating repetitive HTML/React component structures and standard Tailwind CSS classes in the frontend.
+* **Debugging Assistance:** CHelp understand and debug specific Rust borrowing, ownership, and lifetime issues within the game engine logic.
+
+### Classic References & Documentation
+* [The Rust Programming Language](https://doc.rust-lang.org/book/) — Primary documentation for Rust concepts.
+* [Actix Web Documentation](https://actix.rs/docs/) — Documentation for the framework used for all backend microservices.
+* [Diesel ORM Guide](https://diesel.rs/guides/) — Used for database schema design and migrations in PostgreSQL.
+* [Are we web yet?](https://www.arewewebyet.org/) — Reference for the Rust web ecosystem and crate selection.
+* [Simple Reverse Proxy](https://nginx.org/en/docs/http/ngx_http_proxy_module.html) — Inspiration and reference for configuring the Nginx gateway and TLS termination.
+* [React Router Documentation](https://reactrouter.com/) — For implementing client-side routing in the frontend.
