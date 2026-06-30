@@ -35,11 +35,11 @@ services:
     networks:
       - transcendance
 
-  api:
+  db:
     build:
       context: db
-      dockerfile: docker/api.Dockerfile
-    container_name: transcendance_api
+      dockerfile: Dockerfile
+    container_name: transcendance_db
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://diesel:dieselpass@db_oauth:5432/transcendance_oauth
@@ -59,31 +59,6 @@ services:
       - ./reverse-proxy/certs:/etc/ssl/transcendence:ro
     networks:
       - transcendance
-
-  dev:
-    build:
-      context: db
-      dockerfile: docker/dev.Dockerfile
-    container_name: transcendance_dev
-    restart: unless-stopped
-    working_dir: /app
-    environment:
-      CARGO_HOME: /usr/local/cargo
-      RUSTUP_HOME: /usr/local/rustup
-      DATABASE_URL: postgres://diesel:dieselpass@db_oauth:5432/transcendance_oauth
-      API_HOST: 0.0.0.0
-      API_PORT: 3443
-    depends_on:
-      db_oauth:
-        condition: service_healthy
-    volumes:
-      - ./db:/app
-    networks:
-      - transcendance
-    profiles:
-      - dev
-    stdin_open: true
-    tty: true
 
   oauth:
     build:
@@ -107,7 +82,7 @@ services:
       RUST_LOG: info,actix_web=info
       WS_SERVICE_URL: https://ws-service:8082
     depends_on:
-      api:
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sfk https://localhost:8081/health || exit 1"]

@@ -1,7 +1,5 @@
 # Architecture Technique — Luigi Jack Casino
 
-> Documentation générée à partir du code source. Version : mai 2026.
-
 ---
 
 ## Table des matières

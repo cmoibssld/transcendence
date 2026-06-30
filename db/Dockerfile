@@ -17,10 +17,9 @@ RUN apt-get update && apt-get install -y ca-certificates libssl3 libpq5 postgres
 WORKDIR /app
 COPY --from=builder /app/target/release/api /usr/local/bin/api
 COPY --from=builder /usr/local/cargo/bin/diesel /usr/local/bin/diesel
-COPY certs ./certs
 COPY migrations ./migrations
 COPY diesel.toml ./diesel.toml
-COPY docker/entrypoint.sh ./entrypoint.sh
+COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
 EXPOSE 3443
